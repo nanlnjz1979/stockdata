@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Data - 前端控制台</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="layout">
+    <!-- 侧栏导航 -->
+    <aside class="sidebar">
+      <div class="brand"><span class="logo"></span>Stock Data</div>
+      <div class="user" id="userStatus">未登录</div>
+      <nav>
+        <button class="tab active" data-target="quotes"><i class="ri-line-chart-line"></i><span>行情</span></button>
+        <button class="tab" data-target="query"><i class="ri-search-line"></i><span>查询</span></button>
+        <button class="tab" data-target="analysis"><i class="ri-pulse-line"></i><span>分析</span></button>
+        <button class="tab" data-target="profile"><i class="ri-user-3-line"></i><span>个人中心</span></button>
+        <button class="tab" data-target="status"><i class="ri-database-2-line"></i><span>数据状态</span></button>
+        <button class="tab" data-target="update"><i class="ri-refresh-line"></i><span>数据更新</span></button>
+      </nav>
+    </aside>
+
+    <!-- 右侧功能区 -->
+    <main class="main">
+      <div class="topbar">
+        <div class="title" id="pageTitle">行情</div>
+        <div class="spacer"></div>
+        <button class="btn outline" id="themeToggle"><i class="ri-moon-line"></i> 夜间</button>
+        <button class="btn outline" id="exportBtn">导出</button>
+      </div>
+      <div class="container">
+        <!-- 行情 -->
+        <section id="quotes" class="section active">
+          <div class="grid">
+            <div class="card">
+              <h3>实时行情</h3>
+              <div class="status">通过 WebSocket 推送（占位）</div>
+              <div id="chart"></div>
+            </div>
+            <div class="card">
+              <h3>订阅</h3>
+              <div class="status">添加代码并订阅</div>
+              <div style="display:flex; gap:8px;">
+                <input id="subCode" class="input" placeholder="输入股票代码，如 600519" />
+                <button id="subBtn" class="btn">订阅</button>
+              </div>
+              <ul id="subsList"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 查询 -->
+        <section id="query" class="section">
+          <div class="card">
+            <h3>历史行情查询</h3>
+            <div class="status">从后端 REST 接口获取</div>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <input id="queryCode" class="input" placeholder="股票代码，如 TEST" />
+              <input id="queryDate" type="date" class="input" />
+              <button id="queryBtn" class="btn">查询</button>
+            </div>
+            <table class="table">
+              <thead>
+                <tr><th>日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>成交量</th></tr>
+              </thead>
+              <tbody id="queryTable"></tbody>
+            </table>
+          </div>
+          <div class="grid">
+            <div class="card">
+              <h3>关注</h3>
+              <div class="status">添加你的关注列表</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px;">
+                <input id="favCode" class="input" placeholder="股票代码" />
+                <button id="favAdd" class="btn">添加</button>
+              </div>
+              <ul id="favList"></ul>
+            </div>
+            <div class="card">
+              <h3>预警</h3>
+              <div class="status">自定义价格触发</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px;">
+                <input id="alertCode" class="input" placeholder="股票代码" />
+                <input id="alertPrice" class="input" placeholder="触发价" />
+                <button id="alertSave" class="btn">保存</button>
+              </div>
+              <ul id="alertList"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 数据状态 -->
+        <section id="status" class="section">
+          <div class="card">
+            <h3>筛选</h3>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <select id="statusMarket" class="input"><option value="">全部市场</option></select>
+              <!-- 移除行业筛选 -->
+              <input id="financeStart" type="date" class="input" />
+              <input id="financeEnd" type="date" class="input" />
+              <button class="btn" id="statusApply">应用筛选</button>
+            </div>
+          </div>
+          <div class="grid">
+            <div class="card">
+              <h3>总览</h3>
+              <div id="statusOverview" class="status">加载中...</div>
+            </div>
+            <div class="card">
+              <h3>市场分布</h3>
+              <table class="table"><thead><tr><th>市场</th><th>数量</th></tr></thead><tbody id="statusMarkets"></tbody></table>
+            </div>
+            <!-- 移除行业Top卡片 -->
+            <div class="card">
+              <h3>上市日期范围</h3>
+              <div id="statusListing" class="status">-</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 数据更新 -->
+        <section id="update" class="section">
+          <div class="grid">
+            <div class="card">
+              <h3>QuestDB 连接</h3>
+              <div class="status">参数与状态</div>
+              <ul>
+                <li>连接状态：<span id="updateQdb">-</span></li>
+                <li>参数：<span id="updateQdbParams">-</span></li>
+                <li>基础股票数量：<span id="updateBasicCount">-</span></li>
+                <li>财务记录数量：<span id="updateFinanceCount">-</span></li>
+                <li>最新财报日期：<span id="updateLatestFinance">-</span></li>
+                <li>最近关注时间：<span id="updateLatestFollow">-</span></li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>触发更新</h3>
+              <div class="status">后台执行采集脚本</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn" id="updateRun">增量更新</button>
+                <button class="btn outline" id="updateFull">触发全量更新</button>
+                <button class="btn outline" id="updatePause">暂停</button>
+                <button class="btn outline danger" id="updateStop">停止</button>
+              </div>
+              <div id="updateRunStatus" class="status" style="margin-top:8px;">未触发</div>
+              <div id="updateFullStatus" class="status" style="margin-top:8px;">未触发</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 登录面板 -->
+  <div id="login">
+    <div class="panel">
+      <h2>登录</h2>
+      <small class="muted">无需验证，输入昵称即可进入</small>
+      <input id="nickname" class="input" placeholder="你的昵称" />
+      <button id="loginBtn" class="btn">进入系统</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" style="display:none"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
