@@ -128,10 +128,10 @@ class TaskListView(APIView):
             fetch_limit = min(fetch_limit, total)
 
         rows = []
-        cols = ['task_id','task_type','task_desc','task_params','priority','status']
+        cols = ['task_id','task_type','task_desc','task_params','priority','status','created_at','started_at','ended_at']
         try:
             cur.execute(
-                f"SELECT task_id, task_type, task_desc, task_params, priority, status FROM tasks{where_sql} ORDER BY priority DESC LIMIT %s",
+                f"SELECT task_id, task_type, task_desc, task_params, priority, status, created_at, started_at, ended_at FROM tasks{where_sql} ORDER BY priority DESC LIMIT %s",
                 params + [fetch_limit]
             )
             rows = cur.fetchall() or []
@@ -171,6 +171,22 @@ import threading
 import time
 
 _update_ctrl = {
+  'thread': None,
+  'stop_event': threading.Event(),
+  'state': {
+    'running': False,
+    'paused': False,
+    'stopped': False,
+    'updated_count': 0,
+    'total_codes': 0,
+    'current_code': None,
+    'started_at': None,
+    'ended_at': None,
+  }
+}
+
+# 队列更新独立控制器
+_queue_ctrl = {
   'thread': None,
   'stop_event': threading.Event(),
   'state': {
@@ -294,6 +310,102 @@ def _start_full_update_thread():
   t.start()
   return True
 
+# 队列更新：从任务列表中取任务并执行
+
+def _start_queue_update_thread():
+  if _queue_ctrl['thread'] and _queue_ctrl['state']['running']:
+    return False
+  _queue_ctrl['stop_event'].clear()
+  _queue_ctrl['state'].update({
+    'running': True,
+    'paused': False,
+    'stopped': False,
+    'updated_count': 0,
+    'total_codes': 0,
+    'current_code': None,
+    'started_at': timezone.now(),
+    'ended_at': None,
+  })
+
+  def worker():
+    try:
+      import sys
+      project_root = Path(settings.BASE_DIR).parent
+      if str(project_root) not in sys.path:
+        sys.path.append(str(project_root))
+      from data_pipeline.collector import qdb_connect
+      from .tasks import DownloadDailyTask, QdbOrm
+      conn = qdb_connect()
+      orm = QdbOrm(conn)
+      # 预估待处理总数
+      pending = orm.list_tasks(status="待处理", limit=100000)
+      _queue_ctrl['state']['total_codes'] = len(pending)
+      # 按优先级逐个处理
+      idx = 0
+      while not _queue_ctrl['stop_event'].is_set():
+        while _queue_ctrl['state']['paused']:
+          if _queue_ctrl['stop_event'].is_set():
+            break
+          time.sleep(0.2)
+        if _queue_ctrl['stop_event'].is_set():
+          break
+        # 取下一个待处理任务
+        item = orm.next_pending_task()
+        if not item:
+          break
+        tid = item.get('task_id')
+        try:
+          claimed = orm.claim_task(tid)
+        except Exception:
+          claimed = True
+        if not claimed:
+          # 未成功认领，稍后重试
+          time.sleep(0.2)
+          continue
+        # 解析参数，填充当前代码便于前端显示
+        try:
+          import json
+          params = json.loads(item.get('task_params') or '{}')
+        except Exception:
+          params = {}
+        code = params.get('code')
+        if not code and isinstance(params.get('codes'), list) and params.get('codes'):
+          code = params.get('codes')[0]
+        _queue_ctrl['state']['current_code'] = code or item.get('task_type')
+        # 根据类型构造任务，目前支持 download_daily
+        t = DownloadDailyTask(orm)
+        t.task_id = item.get('task_id')
+        t.task_type = item.get('task_type')
+        t.task_desc = item.get('task_desc')
+        t.params_str = item.get('task_params') or '{}'
+        t.priority = item.get('priority') or 0
+        ok = False
+        try:
+          ok = t.run(conn=conn)
+        except Exception:
+          ok = False
+        try:
+          orm.update_task_status(t.task_id, "成功" if ok else "失败")
+        except Exception:
+          pass
+        _queue_ctrl['state']['updated_count'] += 1
+        idx += 1
+        time.sleep(0.01)
+      try:
+        conn.close()
+      except Exception:
+        pass
+    finally:
+      _queue_ctrl['state']['running'] = False
+      _queue_ctrl['state']['stopped'] = _queue_ctrl['stop_event'].is_set()
+      _queue_ctrl['state']['ended_at'] = timezone.now()
+      _queue_ctrl['thread'] = None
+
+  t = threading.Thread(target=worker, daemon=True)
+  _queue_ctrl['thread'] = t
+  t.start()
+  return True
+
 
 class UpdateStatusView(APIView):
     def get(self, request):
@@ -373,6 +485,9 @@ class UpdateStatusView(APIView):
             total_codes = ctrl.get('total_codes') or total_codes
             updated_count = ctrl.get('updated_count') or updated_count
 
+        # 队列控制器状态
+        queue_ctrl = _queue_ctrl['state'].copy()
+
         return Response({
             'stock_basic_count': stock_basic_count,
             'finance_count': finance_count,
@@ -382,6 +497,7 @@ class UpdateStatusView(APIView):
             'updated_count': updated_count,
             'recent_updates': recent_updates,
             'controller': ctrl,
+            'queue_controller': queue_ctrl,
             'questdb': {
                 'host': host,
                 'port': port,
@@ -464,6 +580,51 @@ class UpdateStopView(APIView):
         if _update_ctrl['state']['running']:
             _update_ctrl['stop_event'].set()
         return Response({'running': _update_ctrl['state']['running'], 'stopped': _update_ctrl['state']['stopped']})
+
+# 队列更新 API：从任务列表取任务执行
+class QueueUpdateStartView(APIView):
+    def post(self, request):
+        # 启动前检查 QuestDB
+        try:
+            import sys
+            project_root = Path(settings.BASE_DIR).parent
+            if str(project_root) not in sys.path:
+                sys.path.append(str(project_root))
+            from data_pipeline.collector import qdb_connect
+            test_conn = qdb_connect()
+            if not test_conn:
+                return Response({'started': False, 'error': 'QuestDB连接失败'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            try:
+                test_conn.close()
+            except Exception:
+                pass
+        except Exception as e:
+            return Response({'started': False, 'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        started = _start_queue_update_thread()
+        return Response({
+            'started': started,
+            'started_at': _queue_ctrl['state']['started_at'],
+            'total_codes': _queue_ctrl['state']['total_codes'],
+            'note': '后台执行 任务队列更新（仅消费待处理任务，可暂停/继续/停止）'
+        })
+
+class QueueUpdatePauseView(APIView):
+    def post(self, request):
+        if _queue_ctrl['state']['running'] and not _queue_ctrl['state']['paused']:
+            _queue_ctrl['state']['paused'] = True
+        return Response({'running': _queue_ctrl['state']['running'], 'paused': _queue_ctrl['state']['paused']})
+
+class QueueUpdateResumeView(APIView):
+    def post(self, request):
+        if _queue_ctrl['state']['running'] and _queue_ctrl['state']['paused']:
+            _queue_ctrl['state']['paused'] = False
+        return Response({'running': _queue_ctrl['state']['running'], 'paused': _queue_ctrl['state']['paused']})
+
+class QueueUpdateStopView(APIView):
+    def post(self, request):
+        if _queue_ctrl['state']['running']:
+            _queue_ctrl['stop_event'].set()
+        return Response({'running': _queue_ctrl['state']['running'], 'stopped': _queue_ctrl['state']['stopped']})
 
 class QuotePlaceholderView(APIView):
     def get(self, request):

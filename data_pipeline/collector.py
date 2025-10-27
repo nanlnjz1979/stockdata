@@ -73,9 +73,25 @@ def qdb_ensure_tables(conn=None):
             task_desc string,
             task_params string,
             priority int,
-            status symbol
+            status symbol,
+            created_at timestamp,
+            started_at timestamp,
+            ended_at timestamp
           );
         """)
+        # 确保列存在（兼容已存在旧表）
+        try:
+            cur.execute("alter table tasks add column created_at timestamp")
+        except Exception:
+            pass
+        try:
+            cur.execute("alter table tasks add column started_at timestamp")
+        except Exception:
+            pass
+        try:
+            cur.execute("alter table tasks add column ended_at timestamp")
+        except Exception:
+            pass
         if conn is not qdb_connect:
             pass
         return True

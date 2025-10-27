@@ -149,6 +149,15 @@
               <div id="updateRunStatus" class="status" style="margin-top:8px;">未触发</div>
               <div id="updateFullStatus" class="status" style="margin-top:8px;">未触发</div>
             </div>
+            <div class="card">
+              <h3>任务队列更新</h3>
+              <div class="status">按队列执行任务</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn" id="queueUpdateStart">任务更新</button>
+                <button class="btn outline" id="queueUpdateToggle" disabled>暂停</button>
+              </div>
+              <div id="queueUpdateStatus" class="status" style="margin-top:8px;">空闲</div>
+            </div>
           </div>
         </section>
 
@@ -168,7 +177,7 @@
             <div id="taskLoading" class="loader-overlay" style="display:none;">加载中...</div>
             <table class="table">
               <thead>
-                <tr><th>类型</th><th>描述</th><th>参数</th><th>状态</th><th>优先级</th></tr>
+                <tr><th>类型</th><th>描述</th><th>参数</th><th>状态</th><th>优先级</th><th>创建时间</th><th>开始时间</th><th>结束时间</th></tr>
               </thead>
               <tbody id="taskListTable"></tbody>
             </table>

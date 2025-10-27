@@ -270,13 +270,20 @@ const API_BASE = 'http://127.0.0.1:8000';
   const fullStatusEl = document.getElementById('updateFullStatus');
   const pauseBtn = document.getElementById('updatePause');
   const stopBtn = document.getElementById('updateStop');
-  let paused = false;
+
+  const queueStartBtn = document.getElementById('queueUpdateStart');
+  const queueToggleBtn = document.getElementById('queueUpdateToggle');
+  const queueStatusEl = document.getElementById('queueUpdateStatus');
+   let paused = false;
+   let queuePaused = false;
 
   fetch(`${API_BASE}/api/stocks/update/status`)
     .then(r => r.json())
     .then(d => {
       const ctrl = d.controller || {};
+      const qctrl = d.queue_controller || {};
       paused = !!ctrl.paused;
+      queuePaused = !!qctrl.paused;
       qdbEl.textContent = d.questdb?.connected ? '已连接' : '未连接';
       paramsEl.textContent = `${d.questdb?.host || '-'}:${d.questdb?.port || '-'} ${d.questdb?.user || '-'}/${d.questdb?.dbname || '-'}`;
       basicEl.textContent = d.stock_basic_count || 0;
@@ -285,6 +292,7 @@ const API_BASE = 'http://127.0.0.1:8000';
       latestFollowEl.textContent = d.latest_follow_time || '-';
       // 初始化按钮文案
       if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
+      if (queueToggleBtn) queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
     })
     .catch(err => {
       qdbEl.textContent = '异常';
@@ -350,6 +358,45 @@ const API_BASE = 'http://127.0.0.1:8000';
     }
   });
 
+  // 任务队列：启动 + 暂停/继续
+  queueStartBtn?.addEventListener('click', async () => {
+    try {
+      queueStatusEl.textContent = '启动任务队列中...';
+      const r = await fetch(`${API_BASE}/api/stocks/update/queue/start`, { method: 'POST' });
+      let d = {};
+      try { d = await r.json(); } catch {}
+      if (!r.ok || !d.started) {
+        const msg = d.error || d.detail || `HTTP ${r.status}`;
+        queueStatusEl.textContent = `启动失败：${msg}`;
+        toast(`任务队列启动失败：${msg}`);
+        return;
+      }
+      queueStatusEl.textContent = `已启动，待处理 ${d.total_codes || 0} 个任务`;
+      if (queueToggleBtn) {
+        queueToggleBtn.disabled = false;
+        queueToggleBtn.textContent = '暂停';
+      }
+      queuePaused = false;
+    } catch(e) {
+      queueStatusEl.textContent = `异常：${e.message || e}`;
+    }
+  });
+
+  queueToggleBtn?.addEventListener('click', async () => {
+    try {
+      const url = queuePaused ? `${API_BASE}/api/stocks/update/queue/resume` : `${API_BASE}/api/stocks/update/queue/pause`;
+      const r = await fetch(url, { method: 'POST' });
+      let d = {};
+      try { d = await r.json(); } catch {}
+      queuePaused = !!d.paused;
+      if (queueToggleBtn) queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
+      queueStatusEl.textContent = queuePaused ? '已暂停队列' : '已继续队列';
+      toast(queuePaused ? '已暂停任务队列' : '已继续任务队列');
+    } catch(e) {
+      toast('操作失败');
+    }
+  });
+
   const updateTab = document.querySelector('.sidebar .tab[data-target="update"]');
 
   async function loadStatus(){
@@ -358,8 +405,11 @@ const API_BASE = 'http://127.0.0.1:8000';
       const data = await res.json();
       const qdb = data.questdb || {};
       const ctrl = data.controller || {};
+      const qctrl = data.queue_controller || {};
       paused = !!ctrl.paused;
+      queuePaused = !!qctrl.paused;
       if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
+      if (queueToggleBtn) queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
       qdbEl.textContent = qdb.connected ? '已连接' : '未连接';
       paramsEl.textContent = `${qdb.host||'-'}:${qdb.port||'-'} ${qdb.user||'-'}/${qdb.dbname||'-'}`;
       basicEl.textContent = data.stock_basic_count ?? 0;
@@ -379,12 +429,30 @@ const API_BASE = 'http://127.0.0.1:8000';
       const total = (data.controller?.total_codes ?? data.total_codes) || 0;
       const updated = (data.controller?.updated_count ?? data.updated_count) || 0;
       const percent = total ? Math.round(updated / total * 100) : 0;
-      const recent = (data.recent_updates || []).map(r => r.code).slice(0,5).join(', ');
       const cur = data.controller?.current_code || '-';
       const runFlag = data.controller?.running ? '运行中' : (data.controller?.stopped ? '已停止' : '空闲');
+      const recent = (data.recent_updates || []).map(r => r.code).slice(0,5).join(', ');
+      // 原有全量状态
       fullStatusEl.textContent = `状态：${runFlag} | 进度：${updated}/${total} (${percent}%) 当前：${cur} 最近：${recent || '-'}`;
-      paused = !!(data.controller?.paused);
-      if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
+      // 新增任务队列状态（从 queue_controller 取状态）
+      if (queueStatusEl) {
+        const qtotal = (data.queue_controller?.total_codes ?? 0) || 0;
+        const qupdated = (data.queue_controller?.updated_count ?? 0) || 0;
+        const qpercent = qtotal ? Math.round(qupdated / qtotal * 100) : 0;
+        const qcur = data.queue_controller?.current_code || '-';
+        const qrunFlag = data.queue_controller?.running ? '运行中' : (data.queue_controller?.stopped ? '已停止' : '空闲');
+        queueStatusEl.textContent = `状态：${qrunFlag} | 进度：${qupdated}/${qtotal} (${qpercent}%) 当前：${qcur}`;
+      }
+      // 切换按钮可用性与文案
+      const running = !!(data.queue_controller?.running);
+      queuePaused = !!(data.queue_controller?.paused);
+      if (queueToggleBtn) {
+        queueToggleBtn.disabled = !running;
+        queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
+      }
+      if (queueStartBtn) {
+        queueStartBtn.disabled = running; // 运行中不可再次启动
+      }
     } catch(e) {}
   }
 
@@ -429,11 +497,19 @@ const API_BASE = 'http://127.0.0.1:8000';
 
   function render(items){
     tbody.innerHTML = '';
+    const fmtTs = (v) => {
+      if (!v) return '-';
+      try {
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) return d.toLocaleString();
+        return String(v);
+      } catch(e) { return String(v); }
+    };
     (items || []).forEach(it => {
       const tr = document.createElement('tr');
       const desc = it.task_desc || '';
       const params = (it.task_params && typeof it.task_params === 'object') ? JSON.stringify(it.task_params) : (it.task_params || '');
-      tr.innerHTML = `<td>${it.task_type||'-'}</td><td title="${desc}">${desc||'-'}</td><td title="${params}">${params||'-'}</td><td>${it.status||'-'}</td><td>${it.priority ?? 0}</td>`;
+      tr.innerHTML = `<td>${it.task_type||'-'}</td><td title="${desc}">${desc||'-'}</td><td title="${params}">${params||'-'}</td><td>${it.status||'-'}</td><td>${it.priority ?? 0}</td><td>${fmtTs(it.created_at)}</td><td>${fmtTs(it.started_at)}</td><td>${fmtTs(it.ended_at)}</td>`;
       tbody.appendChild(tr);
     });
   }
@@ -458,7 +534,7 @@ const API_BASE = 'http://127.0.0.1:8000';
       if (nextBtn) nextBtn.disabled = !(data.has_next ?? (meta.page < meta.total_pages));
       // 状态下拉已固定填充，无需依赖后端；如需要可同步后端返回但不覆盖
     } catch(e) {
-      tbody.innerHTML = '<tr><td colspan="5">加载失败</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8">加载失败</td></tr>';
     }
   }
 

@@ -50,15 +50,25 @@ class QdbOrm:
         cur = self._conn.cursor()
         cur.execute(
             """
-            insert into tasks (task_id, task_type, task_desc, task_params, priority, status)
-            values (%s, %s, %s, %s, %s, %s)
+            insert into tasks (task_id, task_type, task_desc, task_params, priority, status, created_at)
+            values (%s, %s, %s, %s, %s, %s, now())
             """,
             (task_id, task_type, task_desc, task_params, int(priority or 0), status),
         )
 
     def update_task_status(self, task_id: str, status: str) -> None:
         cur = self._conn.cursor()
-        cur.execute("update tasks set status=%s where task_id=%s", (status, task_id))
+        # 当置为"处理中"时设置 started_at；当置为"成功/失败/已取消"时设置 ended_at
+        cur.execute(
+            """
+            update tasks
+            set status=%s,
+                started_at = (case when %s='处理中' and started_at is null then now() else started_at end),
+                ended_at   = (case when %s in ('成功','失败','已取消') then now() else ended_at end)
+            where task_id=%s
+            """,
+            (status, status, status, task_id),
+        )
 
     # 查询/列表
     def _row_to_dict(self, cur, row):
@@ -146,8 +156,8 @@ class QdbOrm:
 
     def claim_task(self, task_id: str) -> bool:
         cur = self._conn.cursor()
-        # 乐观锁式认领：仅当当前为待处理时更新为处理中
-        cur.execute("update tasks set status=%s where task_id=%s and status=%s", ("处理中", task_id, "待处理"))
+        # 乐观锁式认领：仅当当前为待处理时更新为处理中，并记录开始时间
+        cur.execute("update tasks set status=%s, started_at=(case when started_at is null then now() else started_at end) where task_id=%s and status=%s", ("处理中", task_id, "待处理"))
         try:
             # 再读一遍确认
             t = self.get_task(task_id)
@@ -156,4 +166,5 @@ class QdbOrm:
             return True
 
     def complete_task(self, task_id: str, success: bool) -> None:
-        self.update_task(task_id, status=("成功" if success else "失败"))
+        # 完成时同时写入结束时间
+        self.update_task_status(task_id, "成功" if success else "失败")
