@@ -42,7 +42,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   function showTab(target){
     qsa('.section').forEach(s => s.classList.toggle('active', s.id === target));
     tabs.forEach(t => t.classList.toggle('active', t.dataset.target === target));
-    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新' };
+    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', tasks: '计划任务' };
     const title = titleMap[target] || '模块';
     qs('#pageTitle').textContent = title;
   }
@@ -201,6 +201,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   }
 
   async function reload(){
+    // 状态模块不使用任务列表的加载遮罩
     try {
       const res = await fetch(buildUrl());
       const data = await res.json();
@@ -391,4 +392,80 @@ const API_BASE = 'http://127.0.0.1:8000';
   if (updateTab) updateTab.addEventListener('click', loadStatus);
   loadStatus();
   setInterval(pollProgress, 3000);
+})();
+
+// 计划任务模块（列表 + 过滤）
+(function initTasks(){
+  const typeSel = qs('#taskTypeFilter');
+  const statusSel = qs('#taskStatusFilter');
+  const applyBtn = qs('#taskApply');
+  const tbody = qs('#taskListTable');
+  const tasksTab = document.querySelector('.sidebar .tab[data-target="tasks"]');
+  if (!tbody) return;
+  const prevBtn = qs('#taskPrev');
+  const nextBtn = qs('#taskNext');
+  const pageInfo = qs('#taskPageInfo');
+  let page = 1;
+  const pageSize = 50;
+  // 固定状态列表，保证筛选项始终可用
+  const STATUS_OPTIONS = ['待处理','处理中','成功','失败','重试中','已取消'];
+  if (statusSel && statusSel.options.length <= 1) {
+    STATUS_OPTIONS.forEach(v => { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; statusSel.appendChild(opt); });
+  }
+  const paramSearch = qs('#taskParamSearch');
+  function buildUrl(){
+    const p = new URLSearchParams();
+    const t = (typeSel && typeSel.value) || '';
+    const s = (statusSel && statusSel.value) || '';
+    const q = (paramSearch && paramSearch.value) || '';
+    if (t) p.set('task_type', t);
+    if (s) p.set('status', s);
+    if (q) p.set('param_contains', q);
+    p.set('page', String(page));
+    p.set('page_size', String(pageSize));
+    const qsStr = p.toString();
+    return `${API_BASE}/api/stocks/tasks${qsStr ? ('?' + qsStr) : ''}`;
+  }
+
+  function render(items){
+    tbody.innerHTML = '';
+    (items || []).forEach(it => {
+      const tr = document.createElement('tr');
+      const desc = it.task_desc || '';
+      const params = (it.task_params && typeof it.task_params === 'object') ? JSON.stringify(it.task_params) : (it.task_params || '');
+      tr.innerHTML = `<td>${it.task_type||'-'}</td><td title="${desc}">${desc||'-'}</td><td title="${params}">${params||'-'}</td><td>${it.status||'-'}</td><td>${it.priority ?? 0}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function reload(){
+    try {
+      const res = await fetch(buildUrl());
+      const data = await res.json();
+      render(data.items || []);
+      if (typeSel && typeSel.options.length <= 1) {
+        (data.options?.types || []).forEach(v => { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; typeSel.appendChild(opt); });
+      }
+      const meta = {
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        page_size: data.page_size ?? pageSize,
+        total_pages: data.total_pages ?? Math.max(1, Math.ceil(((data.total ?? 0) / (data.page_size ?? pageSize))))
+      };
+      page = meta.page;
+      if (pageInfo) pageInfo.textContent = `第 ${meta.page} / ${meta.total_pages} 页`;
+      if (prevBtn) prevBtn.disabled = !(data.has_prev ?? (meta.page > 1));
+      if (nextBtn) nextBtn.disabled = !(data.has_next ?? (meta.page < meta.total_pages));
+      // 状态下拉已固定填充，无需依赖后端；如需要可同步后端返回但不覆盖
+    } catch(e) {
+      tbody.innerHTML = '<tr><td colspan="5">加载失败</td></tr>';
+    }
+  }
+
+  applyBtn?.addEventListener('click', () => { page = 1; reload(); });
+  paramSearch?.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { page = 1; reload(); } });
+  tasksTab?.addEventListener('click', () => { page = 1; reload(); });
+  prevBtn?.addEventListener('click', () => { if (page > 1) { page--; reload(); }});
+  nextBtn?.addEventListener('click', () => { page++; reload(); });
+  reload();
 })();

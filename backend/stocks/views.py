@@ -1,4 +1,5 @@
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -57,9 +58,115 @@ class UserFollowViewSet(viewsets.ModelViewSet):
 
 
 # 占位：按时间范围查询历史K线（后续接入TimescaleDB）
-from rest_framework.views import APIView
+class TaskListView(APIView):
+    def get(self, request):
+        import os
+        try:
+            import psycopg2
+            from psycopg2 import OperationalError
+        except Exception:
+            return Response({'error': '缺少 psycopg2 依赖，无法连接 QuestDB'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# 更新控制器（暂停/继续/停止）
+        host = os.getenv('QDB_HOST', 'localhost')
+        port = int(os.getenv('QDB_PORT', '8812'))
+        user = os.getenv('QDB_USER', 'admin')
+        password = os.getenv('QDB_PASS', 'quest')
+        dbname = os.getenv('QDB_DB', 'qdb')
+
+        type_filter = request.query_params.get('task_type') or request.query_params.get('type')
+        status_filter = request.query_params.get('status')
+        param_contains = request.query_params.get('param_contains') or request.query_params.get('q')
+
+        # 分页参数，默认第1页、每页50条；允许使用limit作为page_size别名
+        try:
+            page = int(request.query_params.get('page') or 1)
+        except Exception:
+            page = 1
+        try:
+            page_size = int(request.query_params.get('page_size') or request.query_params.get('limit') or 50)
+        except Exception:
+            page_size = 50
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 50
+        page_size = min(page_size, 200)
+
+        try:
+            conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
+        except OperationalError as e:
+            return Response({'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'连接异常: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # 构造查询条件
+        where = []
+        params = []
+        if status_filter:
+            where.append("status=%s")
+            params.append(status_filter)
+        if type_filter:
+            where.append("task_type=%s")
+            params.append(type_filter)
+        if param_contains:
+            where.append("lower(task_params) LIKE %s")
+            params.append('%' + param_contains.lower() + '%')
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        cur = conn.cursor()
+        # 统计总数
+        total = 0
+        try:
+            cur.execute(f"SELECT count(*) FROM tasks{where_sql}", params)
+            total = int((cur.fetchone() or [0])[0] or 0)
+        except Exception:
+            total = 0
+
+        # QuestDB不支持OFFSET，这里通过拉取前 page*page_size 条再在Python层切片实现分页
+        fetch_limit = min(page * page_size, max(page_size, 1000))
+        if total > 0:
+            fetch_limit = min(fetch_limit, total)
+
+        rows = []
+        cols = ['task_id','task_type','task_desc','task_params','priority','status']
+        try:
+            cur.execute(
+                f"SELECT task_id, task_type, task_desc, task_params, priority, status FROM tasks{where_sql} ORDER BY priority DESC LIMIT %s",
+                params + [fetch_limit]
+            )
+            rows = cur.fetchall() or []
+            if cur.description:
+                cols = [d[0] for d in cur.description]
+        except Exception:
+            rows = []
+
+        items_all = [{cols[i]: r[i] for i in range(len(cols))} for r in rows]
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = items_all[start:end]
+
+        # 选项派生
+        types = sorted(list({(it.get('task_type') or '') for it in items_all if it.get('task_type')}))
+        # 固定状态列表，确保前端始终可选
+        statuses = ['待处理','处理中','成功','失败','重试中','已取消']
+
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+        total_pages = (total + page_size - 1) // page_size if page_size else 1
+        return Response({
+            'items': items,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+            'has_prev': page > 1,
+            'has_next': page < total_pages,
+            'options': {'types': types, 'statuses': statuses}
+        })
+
 import threading
 import time
 
@@ -95,40 +202,33 @@ def _start_full_update_thread():
   
   def worker():
     try:
-      # 延迟导入，避免Django启动时阻塞
       import sys
       project_root = Path(settings.BASE_DIR).parent
       if str(project_root) not in sys.path:
         sys.path.append(str(project_root))
       from data_pipeline.collector import qdb_connect, qdb_ensure_tables, populate_stock_basic_if_empty, qdb_get_all_basic, qdb_drop_tables, sync_basic_to_django
       conn = qdb_connect()
-      
+      """
       if not conn:
-        # 保留异常行为，但同时尽快退出并记录状态
         _update_ctrl['state']['error'] = 'QuestDB连接失败'
         raise RuntimeError('QuestDB连接失败')
       try:
           qdb_drop_tables(conn)
       except Exception:
           pass
-      qdb_ensure_tables(conn)#创建表结构 stock_basic，stock_daily，tasks
-      populate_stock_basic_if_empty(conn=conn)  #通过stock_info_sh_name_code得到所有a股的代码和资料
+      qdb_ensure_tables(conn)
+      """
+      populate_stock_basic_if_empty(conn=conn)
       sync_basic_to_django(conn=conn)
-      
       basics = qdb_get_all_basic(conn=conn)
       _update_ctrl['state']['total_codes'] = len(basics)
-
-
-
-      # 根据 basics 列表生成任务：每个元素含 code 与 listing_date
       from .tasks import DownloadDailyTask, QdbOrm
       orm = QdbOrm(conn)
       task = DownloadDailyTask(orm)
       for item in basics:
         code = item.get('code')
         market = item.get('market')
-        listing_date = item.get('listing_date')  # 可能是日期或字符串
-        # 归一化开始日期
+        listing_date = item.get('listing_date')
         if not listing_date:
           start_date = '19841118'
         else:
@@ -142,23 +242,17 @@ def _start_full_update_thread():
             start_date = '19841118'
         if not code:
           continue
-        # 为每个代码生成下载任务，写入 tasks 表
         task.generate("download_daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
-        
-      # 拉取待处理的下载任务
       dl_daily = orm.list_tasks(status="待处理", task_type="download_daily", limit=100000)
       for item in dl_daily:
-
         if _update_ctrl['stop_event'].is_set():
           break
-        # 暂停等待
         while _update_ctrl['state']['paused']:
           if _update_ctrl['stop_event'].is_set():
             break
           time.sleep(0.2)
         if _update_ctrl['stop_event'].is_set():
           break
-        # 解析任务参数用于状态展示
         try:
           import json
           params = json.loads(item.get('task_params') or '{}')
@@ -166,7 +260,6 @@ def _start_full_update_thread():
           params = {}
         code = params.get('code')
         _update_ctrl['state']['current_code'] = code
-        # 构造任务实例并执行（传入连接）
         t = DownloadDailyTask(orm)
         t.task_id = item.get('task_id')
         t.task_type = item.get('task_type')
@@ -190,43 +283,17 @@ def _start_full_update_thread():
       try:
         conn.close()
       except Exception:
-        pass      
-      """   
-      for item in basics:
-        if _update_ctrl['stop_event'].is_set():
-          break
-        # 暂停等待
-        while _update_ctrl['state']['paused']:
-          if _update_ctrl['stop_event'].is_set():
-            break
-          time.sleep(0.2)
-        if _update_ctrl['stop_event'].is_set():
-          break
-        code = item.get('code')
-        market = item.get('market')
-        _update_ctrl['state']['current_code'] = code
-        try:
-          # 不再依赖market参数，write_daily_to_db内部按代码前缀推断市场
-          write_daily_to_db(code, market, conn=conn)
-        except Exception:
-          pass
-        _update_ctrl['state']['updated_count'] += 1
-        time.sleep(0.01)
-      try:
-        conn.close()
-      except Exception:
         pass
-      """
     finally:
       _update_ctrl['state']['running'] = False
       _update_ctrl['state']['stopped'] = _update_ctrl['stop_event'].is_set()
       _update_ctrl['state']['ended_at'] = timezone.now()
       _update_ctrl['thread'] = None
-  
   t = threading.Thread(target=worker, daemon=True)
   _update_ctrl['thread'] = t
   t.start()
   return True
+
 
 class UpdateStatusView(APIView):
     def get(self, request):

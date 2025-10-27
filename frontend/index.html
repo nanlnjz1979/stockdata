@@ -20,6 +20,7 @@
         <button class="tab" data-target="profile"><i class="ri-user-3-line"></i><span>个人中心</span></button>
         <button class="tab" data-target="status"><i class="ri-database-2-line"></i><span>数据状态</span></button>
         <button class="tab" data-target="update"><i class="ri-refresh-line"></i><span>数据更新</span></button>
+        <button class="tab" data-target="tasks"><i class="ri-calendar-check-line"></i><span>计划任务</span></button>
       </nav>
     </aside>
 
@@ -147,6 +148,34 @@
               </div>
               <div id="updateRunStatus" class="status" style="margin-top:8px;">未触发</div>
               <div id="updateFullStatus" class="status" style="margin-top:8px;">未触发</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 计划任务 -->
+        <section id="tasks" class="section">
+          <div class="card">
+            <h3>过滤</h3>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <select id="taskTypeFilter" class="input"><option value="">全部类型</option></select>
+              <select id="taskStatusFilter" class="input"><option value="">全部状态</option></select>
+              <input id="taskParamSearch" class="input" placeholder="参数包含..." />
+              <button class="btn" id="taskApply">应用筛选</button>
+            </div>
+          </div>
+          <div class="card" id="taskListCard">
+            <h3>计划任务列表</h3>
+            <div id="taskLoading" class="loader-overlay" style="display:none;">加载中...</div>
+            <table class="table">
+              <thead>
+                <tr><th>类型</th><th>描述</th><th>参数</th><th>状态</th><th>优先级</th></tr>
+              </thead>
+              <tbody id="taskListTable"></tbody>
+            </table>
+            <div id="taskPager" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+              <button class="btn outline" id="taskPrev">上一页</button>
+              <span id="taskPageInfo" class="muted">第 1 / 1 页</span>
+              <button class="btn outline" id="taskNext">下一页</button>
             </div>
           </div>
         </section>

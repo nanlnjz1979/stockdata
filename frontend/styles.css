@@ -92,3 +92,20 @@ small.muted { color: var(--muted); }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* 计划任务加载过渡 */
+.card { position: relative; }
+.loader-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(2px);
+  color: #333;
+  font-size: 14px;
+}
+.card.loading .loader-overlay { display: flex; }
+.card table { transition: opacity 180ms ease; }
+.card.loading table { opacity: 0.4; }

@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView
+from .views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView
 
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
@@ -17,4 +17,5 @@ urlpatterns = [
     path('stocks/update/pause', UpdatePauseView.as_view()),
     path('stocks/update/resume', UpdateResumeView.as_view()),
     path('stocks/update/stop', UpdateStopView.as_view()),
+    path('stocks/tasks', TaskListView.as_view()),
 ]
