@@ -60,9 +60,7 @@ def qdb_ensure_tables(conn=None):
             volume long,
             amount double,
             turnover double,
-            change double,
-            change_rate double,
-            amplitude double
+            outstanding_share double
           );
         """)
         
@@ -214,10 +212,8 @@ def qdb_insert_daily(code, df, adj, conn=None):
             '最低': 'low',
             '成交量': 'volume', 
             '成交额': 'amount', 
-            '振幅': 'amplitude', 
-            '涨跌幅': 'change_rate',
-            '涨跌额': 'change', 
             '换手率': 'turnover',
+            '流通股本': 'outstanding_share'
         }
         df = df.rename(columns=cols)
         values = []
@@ -241,17 +237,15 @@ def qdb_insert_daily(code, df, adj, conn=None):
                 _int(r.get('volume')),
                 _num(r.get('amount')),
                 _num(r.get('turnover')),
-                _num(r.get('change')),
-                _num(r.get('change_rate')),
-                _num(r.get('amplitude')),
+                _num(r.get('outstanding_share')),
             ))
         if values:
             try:
                 cur.executemany(
                     """
                     insert into stock_daily (
-                      code, trade_date, adjust_type, open, close, high, low, volume, amount, turnover, change, change_rate, amplitude
-                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                      code, trade_date, adjust_type, open, close, high, low, volume, amount, turnover, outstanding_share
+                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     values
                 )
@@ -500,19 +494,19 @@ def populate_stock_basic_if_empty(conn=None):
                             code = str(v).strip()
                             break
                     name = None
-                    for key in ['名称', '证券简称', 'A股简称', '股票简称']:
+                    for key in [ '证券简称', 'A股简称', '股票简称','证券简称']:
                         v = r.get(key)
                         if v:
                             name = str(v).strip()
                             break
                     company_name = None
-                    for key in ['公司名称', '公司全称', '企业名称']:
+                    for key in ['公司名称', '公司全称', '企业名称','证券简称','A股简称']:
                         v = r.get(key)
                         if v:
                             company_name = str(v).strip()
                             break
                     listing_date = None
-                    for key in ['上市日期', '上市时间']:
+                    for key in ['上市日期', '上市时间','A股上市日期']:
                         v = r.get(key)
                         if v:
                             try:

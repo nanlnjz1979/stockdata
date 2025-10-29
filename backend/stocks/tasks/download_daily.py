@@ -34,10 +34,8 @@ def _insert_daily(code, df, adj, conn=None):
             '最低': 'low',
             '成交量': 'volume',
             '成交额': 'amount',
-            '振幅': 'amplitude',
-            '涨跌幅': 'change_rate',
-            '涨跌额': 'change',
             '换手率': 'turnover',
+            '流通股本': 'outstanding_share',
         }
         df = df.rename(columns=cols)
         values = []
@@ -51,7 +49,6 @@ def _insert_daily(code, df, adj, conn=None):
                 continue
             adj_norm = adj if (adj and str(adj).strip()) else None
             values.append((
-                code,
                 trade_date.date(),
                 adj_norm,
                 _num(r.get('open')),
@@ -61,17 +58,15 @@ def _insert_daily(code, df, adj, conn=None):
                 _int(r.get('volume')),
                 _num(r.get('amount')),
                 _num(r.get('turnover')),
-                _num(r.get('change')),
-                _num(r.get('change_rate')),
-                _num(r.get('amplitude')),
+                _num(r.get('outstanding_share')),
             ))
         if values:
             try:
                 cur.executemany(
                     """
                     insert into stock_daily (
-                      code, trade_date, adjust_type, open, close, high, low, volume, amount, turnover, change, change_rate, amplitude
-                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                      code, trade_date, adjust_type, open, close, high, low, volume, amount, turnover, outstanding_share
+                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     values
                 )
