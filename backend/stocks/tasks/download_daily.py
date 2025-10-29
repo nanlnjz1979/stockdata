@@ -49,6 +49,7 @@ def _insert_daily(code, df, adj, conn=None):
                 continue
             adj_norm = adj if (adj and str(adj).strip()) else None
             values.append((
+                code,
                 trade_date.date(),
                 adj_norm,
                 _num(r.get('open')),
