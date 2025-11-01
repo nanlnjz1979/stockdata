@@ -77,19 +77,40 @@ def qdb_ensure_tables(conn=None):
             ended_at timestamp
           );
         """)
-        # 确保列存在（兼容已存在旧表）
+
+        cur.execute(    
+            """
+            create table if not exists inst_trading_tracker (   --机构席位追踪表
+              ingest_date date,     --查询的日期,大部分是入库的时间
+              code symbol,          --股票的代码
+              name string,          --股票名称
+              buy_amount double,    -- 累计买入额(单位: 万)
+              buy_times int,        -- 累计买入次数
+              sell_amount double,   -- 累计卖出额(单位: 万)
+              sell_times int,       -- 累计卖出次数
+              net_amount double,    -- 净额(单位: 万)（net_amount = buy_amount - sell_amount）
+              query_type int        -- 查询类型（5/10/30/60天）
+            );
+            """
+        )
+
+        # 新增：参数配置表（计划任务）
+        cur.execute("""
+          create table if not exists schedule_configs (
+            id   symbol ,           --主键
+            name string,            --任务名称
+            task_desc string,       --任务描述
+            params string,          --download_daily(下载日线数据)/ Institutional_Trading_Tracking(机构席位追踪)
+            schedule_time timestamp,--例如每天16点
+            enabled int             --是否开启
+          );
+        """)
         try:
-            cur.execute("alter table tasks add column created_at timestamp")
+            cur.execute("ALTER TABLE schedule_configs RENAME COLUMN task_type TO task_desc")
         except Exception:
             pass
-        try:
-            cur.execute("alter table tasks add column started_at timestamp")
-        except Exception:
-            pass
-        try:
-            cur.execute("alter table tasks add column ended_at timestamp")
-        except Exception:
-            pass
+
+
         if conn is not qdb_connect:
             pass
         return True
@@ -110,7 +131,6 @@ def qdb_insert_basic(rows, conn=None):
         return 0
     try:
         cur = conn_local.cursor()
-        qdb_ensure_tables(conn_local)
         values = []
         for r in rows:
             code = r.get('code')
@@ -146,32 +166,6 @@ def qdb_insert_basic(rows, conn=None):
         return 0
 
 
-# 新增：删除 QuestDB 表（stock_daily 与 stock_basic）
-def qdb_drop_tables(conn=None):
-  conn_local = conn or qdb_connect()
-  if not conn_local:
-    return False
-  try:
-    cur = conn_local.cursor()
-    for tbl in ['stock_daily', 'stock_basic', 'tasks']:
-      try:
-        cur.execute(f"drop table if exists {tbl}")
-      except Exception:
-        try:
-          cur.execute(f"drop table {tbl}")
-        except Exception:
-          pass
-    if conn is None:
-      conn_local.close()
-    return True
-  except Exception:
-    try:
-      if conn is None:
-        conn_local.close()
-    except Exception:
-      pass
-    return False
-
 # 一次读取全部基础股票（code, market, name）
 def qdb_get_all_basic(conn=None):
     conn_local = conn or qdb_connect()
@@ -179,7 +173,6 @@ def qdb_get_all_basic(conn=None):
         return []
     try:
         cur = conn_local.cursor()
-        qdb_ensure_tables(conn_local)
         cur.execute('select code, market, name, company_name, listing_date from stock_basic')
         rows = cur.fetchall() or []
         if conn is None:
@@ -203,7 +196,7 @@ def qdb_insert_daily(code, df, adj, conn=None):
         return 0
     try:
         cur = conn_local.cursor()
-        qdb_ensure_tables(conn_local)
+
         cols = {
             '日期': 'date', 
             '开盘': 'open', 
@@ -364,7 +357,6 @@ def qdb_basic_count(conn=None):
         return 0
     try:
         cur = conn_local.cursor()
-        qdb_ensure_tables(conn_local)
         cur.execute('select count(*) from stock_basic')
         n = cur.fetchone()[0] if cur.rowcount != -1 else 0
         if conn is None:
@@ -384,7 +376,6 @@ def qdb_list_codes(conn=None):
         return []
     try:
         cur = conn_local.cursor()
-        qdb_ensure_tables(conn_local)
         cur.execute('select code from stock_basic')
         rows = cur.fetchall() or []
         if conn is None:
@@ -404,7 +395,6 @@ def qdb_get_market(code: str):
         return None
     try:
         cur = conn.cursor()
-        qdb_ensure_tables()
         cur.execute('select market from stock_basic where code=$1 limit 1', (code,))
         row = cur.fetchone()
         conn.close()

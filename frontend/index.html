@@ -21,6 +21,7 @@
         <button class="tab" data-target="status"><i class="ri-database-2-line"></i><span>数据状态</span></button>
         <button class="tab" data-target="update"><i class="ri-refresh-line"></i><span>数据更新</span></button>
         <button class="tab" data-target="tasks"><i class="ri-calendar-check-line"></i><span>计划任务</span></button>
+        <button class="tab" data-target="config"><i class="ri-settings-3-line"></i><span>参数配置</span></button>
       </nav>
     </aside>
 
@@ -186,6 +187,34 @@
               <span id="taskPageInfo" class="muted">第 1 / 1 页</span>
               <button class="btn outline" id="taskNext">下一页</button>
             </div>
+          </div>
+        </section>
+
+        <!-- 参数配置 -->
+        <section id="config" class="section">
+          <div class="card">
+            <h3>参数配置</h3>
+            <div class="status">从后端读取并可编辑保存</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+              <button class="btn" id="configReload">刷新</button>
+              <button class="btn" id="configAdd">添加</button>
+              <button class="btn outline" id="configSave">保存</button>
+            </div>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>参数ID</th>
+                  <th>名称</th>
+                  <th>描述</th>
+                  <th>参数(JSON)</th>
+                  <th>时间(触发时间)</th>
+                  <th>开启</th>
+                   <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="configTable"></tbody>
+            </table>
+            <small class="muted">提示：时间可填"16:30"或"1970-01-01 16:30:00"，保存时自动规范化。</small>
           </div>
         </section>
       </div>

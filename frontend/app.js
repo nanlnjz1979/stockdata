@@ -42,7 +42,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   function showTab(target){
     qsa('.section').forEach(s => s.classList.toggle('active', s.id === target));
     tabs.forEach(t => t.classList.toggle('active', t.dataset.target === target));
-    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', tasks: '计划任务' };
+    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', tasks: '计划任务', config: '参数配置' };
     const title = titleMap[target] || '模块';
     qs('#pageTitle').textContent = title;
   }
@@ -544,4 +544,209 @@ const API_BASE = 'http://127.0.0.1:8000';
   prevBtn?.addEventListener('click', () => { if (page > 1) { page--; reload(); }});
   nextBtn?.addEventListener('click', () => { page++; reload(); });
   reload();
+})();
+
+// 参数配置模块（列表编辑 + 保存）
+(function initConfig(){
+  const tbody = qs('#configTable');
+  const reloadBtn = qs('#configReload');
+  const saveBtn = qs('#configSave');
+  const addBtn = qs('#configAdd');
+  if (!tbody) return;
+
+  function render(items){
+    tbody.innerHTML = '';
+    (items||[]).forEach(it => {
+      const tr = document.createElement('tr');
+      const id = (it.id||'').trim();
+      const name = it.name||'';
+      const desc = it.task_desc||'';
+      const params = it.params||'';
+      const stime = it.schedule_time||'';
+      const enabled = (it.enabled===1 || it.enabled===true || String(it.enabled).toLowerCase() in { '1':1, 'true':1, 't':1, 'yes':1, 'y':1 });
+      tr.innerHTML = `
+        <td><input class="input" value="${id}" data-field="id" /></td>
+        <td><input class="input" value="${name}" data-field="name" /></td>
+        <td><input class="input" value="${desc}" data-field="task_desc" /></td>
+        <td><input class="input" value='${params.replace(/'/g, "&#39;")}' data-field="params" /></td>
+        <td><input class="input" value="${stime}" data-field="schedule_time" placeholder="16:30 或 1970-01-01 16:30:00" /></td>
+        <td style="text-align:center;"><input type="checkbox" ${enabled? 'checked': ''} data-field="enabled" /></td>
+        <td><button class="btn outline danger row-del">删除</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function addRow(){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input class="input" value="" data-field="id" placeholder="唯一ID" /></td>
+      <td><input class="input" value="" data-field="name" placeholder="名称" /></td>
+      <td><input class="input" value="" data-field="task_desc" placeholder="描述" /></td>
+      <td><input class="input" value='{"market":"CN","adjust":"hfq"}' data-field="params" /></td>
+      <td><input class="input" value="16:30" data-field="schedule_time" placeholder="16:30 或 1970-01-01 16:30:00" /></td>
+      <td style="text-align:center;"><input type="checkbox" checked data-field="enabled" /></td>
+      <td><button class="btn outline danger row-del">删除</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  // 事件委托：删除行
+  tbody.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('row-del')) {
+      const tr = t.closest('tr');
+      if (tr) {
+        tr.remove();
+        toast('已删除一行，点击保存同步到数据库');
+      }
+    }
+  });
+
+  // 时间选择器弹窗
+  let tpEl = null, tpDate = null, tpTime = null, tpActiveInput = null;
+  function ensureTimePicker(){
+    if (tpEl) return;
+    tpEl = document.createElement('div');
+    tpEl.id = 'timePicker';
+    tpEl.style.position = 'absolute';
+    tpEl.style.background = '#fff';
+    tpEl.style.border = '1px solid #ddd';
+    tpEl.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)';
+    tpEl.style.padding = '12px';
+    tpEl.style.borderRadius = '8px';
+    tpEl.style.zIndex = '9999';
+    tpEl.style.minWidth = '280px';
+    tpEl.style.display = 'none';
+    tpEl.innerHTML = `
+      <div style="font-weight:600;margin-bottom:8px;">选择时间</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+        <label style="width:56px">日期</label>
+        <input type="date" id="tpDate" class="input" style="flex:1;" />
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+        <label style="width:56px">时间</label>
+        <input type="time" id="tpTime" class="input" step="60" style="flex:1;" />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn" data-action="now">现在</button>
+        <button class="btn outline" data-action="clear">清空</button>
+        <button class="btn primary" data-action="ok">确定</button>
+        <button class="btn outline" data-action="cancel">取消</button>
+      </div>
+    `;
+    document.body.appendChild(tpEl);
+    tpDate = tpEl.querySelector('#tpDate');
+    tpTime = tpEl.querySelector('#tpTime');
+    tpEl.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-action]');
+      if (!btn) return;
+      const act = btn.dataset.action;
+      if (act === 'now') {
+        const d = new Date();
+        tpDate.value = d.toISOString().slice(0,10);
+        const hh = String(d.getHours()).padStart(2,'0');
+        const mm = String(d.getMinutes()).padStart(2,'0');
+        tpTime.value = `${hh}:${mm}`;
+      } else if (act === 'clear') {
+        tpDate.value = '';
+        tpTime.value = '';
+      } else if (act === 'ok') {
+        if (tpActiveInput) {
+          const dv = tpDate.value.trim();
+          let tv = (tpTime.value||'').trim();
+          if (tv && tv.length === 5) tv = tv + ':00';
+          if (dv && tv) tpActiveInput.value = `${dv} ${tv}`;
+          else if (!dv && tv) tpActiveInput.value = tv.slice(0,5);
+          else tpActiveInput.value = '';
+        }
+        hideTimePicker();
+      } else if (act === 'cancel') {
+        hideTimePicker();
+      }
+    });
+    document.addEventListener('mousedown', (ev) => {
+      if (!tpEl || tpEl.style.display === 'none') return;
+      const withinPicker = tpEl.contains(ev.target);
+      const onInput = tpActiveInput && (ev.target === tpActiveInput);
+      if (!withinPicker && !onInput) hideTimePicker();
+    });
+  }
+  function showTimePicker(input){
+    ensureTimePicker();
+    tpActiveInput = input;
+    const v = (input.value||'').trim();
+    tpDate.value = '';
+    tpTime.value = '';
+    // 解析现有值
+    const m1 = v.match(/^(\d{2}:\d{2})(?::\d{2})?$/);
+    const m2 = v.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/);
+    if (m2) {
+      tpDate.value = m2[1];
+      tpTime.value = m2[2];
+    } else if (m1) {
+      tpTime.value = m1[1];
+    }
+    // 定位到输入框下方
+    const rect = input.getBoundingClientRect();
+    tpEl.style.left = (window.scrollX + rect.left) + 'px';
+    tpEl.style.top = (window.scrollY + rect.bottom + 4) + 'px';
+    tpEl.style.display = 'block';
+  }
+  function hideTimePicker(){
+    if (tpEl) tpEl.style.display = 'none';
+    tpActiveInput = null;
+  }
+
+  // 点击时间输入时弹窗
+  tbody.addEventListener('click', (e) => {
+    const input = e.target.closest('input[data-field="schedule_time"]');
+    if (input) {
+      showTimePicker(input);
+    }
+  });
+
+  async function reload(){
+    try {
+      const res = await fetch(`${API_BASE}/api/configs/schedule`);
+      const data = await res.json();
+      render(data.items||[]);
+      toast('已加载参数配置');
+    } catch(e) {
+      toast('加载配置失败');
+    }
+  }
+
+  function collect(){
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    return rows.map(tr => {
+      const get = f => tr.querySelector(`[data-field="${f}"]`);
+      const id = (get('id').value||'').trim();
+      const name = (get('name').value||'').trim();
+      const task_desc = (get('task_desc').value||'').trim();
+      const params = (get('params').value||'').trim();
+      const schedule_time = (get('schedule_time').value||'').trim();
+      const enabled = !!get('enabled').checked;
+      return { id, name, task_desc, params, schedule_time, enabled };
+    }).filter(it => it.id);
+  }
+
+  async function save(){
+    const items = collect();
+    try {
+      const res = await fetch(`${API_BASE}/api/configs/schedule`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+      const data = await res.json();
+      if (data.saved) toast(`已保存 ${data.count||items.length} 条配置`); else throw new Error(data.error||'未知错误');
+    } catch(e) { toast('保存失败：' + (e.message||'')); }
+  }
+
+  if (reloadBtn) reloadBtn.addEventListener('click', reload);
+  if (saveBtn) saveBtn.addEventListener('click', save);
+  if (addBtn) addBtn.addEventListener('click', addRow);
+  const cfgTab = document.querySelector('.sidebar .tab[data-target="config"]');
+  if (cfgTab) cfgTab.addEventListener('click', reload);
 })();

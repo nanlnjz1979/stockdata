@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
 from .data.daily import DailyDataView
 from .data.basic import StocksSHView, StocksSZView, StocksBJView
+from .config_views import ScheduleConfigView
 
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
@@ -24,6 +25,7 @@ urlpatterns = [
     path('stocks/update/queue/resume', QueueUpdateResumeView.as_view()),
     path('stocks/update/queue/stop', QueueUpdateStopView.as_view()),
     path('stocks/tasks', TaskListView.as_view()),
+    path('configs/schedule', ScheduleConfigView.as_view()),
     
     path('stocks/data/daily', DailyDataView.as_view()),# 日线数据
     path('stocks/data/basic/sh', StocksSHView.as_view()),# 上证基础数据
