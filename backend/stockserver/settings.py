@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'stocks',
+    'django_q',
 ]
 
 MIDDLEWARE = [
@@ -73,7 +74,19 @@ CORS_ALLOW_ALL_ORIGINS = True
 LANGUAGE_CODE = 'zh-hans'
 TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
-USE_TZ = True
+USE_TZ = False
 
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+Q_CLUSTER = {
+    'name': 'stockdata',
+    'workers': 2,
+    'recycle': 500,
+    'timeout': 60,
+    'retry': 120,
+    'queue_limit': 50,
+    'bulk': 10,
+    'catch_up': True,  # 修改为True，允许错过的任务执行
+    'orm': 'default',
+}

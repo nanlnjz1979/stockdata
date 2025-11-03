@@ -1,9 +1,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
+from views.views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, TaskMonitorView, ScheduleListView, RecentTasksView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
 from .data.daily import DailyDataView
 from .data.basic import StocksSHView, StocksSZView, StocksBJView
-from .config_views import ScheduleConfigView
+from views.config_views import ScheduleConfigView, ScheduleApplyView
 
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
@@ -26,6 +26,13 @@ urlpatterns = [
     path('stocks/update/queue/stop', QueueUpdateStopView.as_view()),
     path('stocks/tasks', TaskListView.as_view()),
     path('configs/schedule', ScheduleConfigView.as_view()),
+    path('configs/schedule/apply', ScheduleApplyView.as_view()),  # 立即生效API
+    
+    # 任务监控相关API
+    path('tasks/monitor', TaskMonitorView.as_view()),           # 任务统计
+    path('tasks/list', TaskListView.as_view()),                 # 任务列表
+    path('tasks/schedules', ScheduleListView.as_view()),        # 调度任务列表
+    path('tasks/recent', RecentTasksView.as_view()),            # 最近任务
     
     path('stocks/data/daily', DailyDataView.as_view()),# 日线数据
     path('stocks/data/basic/sh', StocksSHView.as_view()),# 上证基础数据

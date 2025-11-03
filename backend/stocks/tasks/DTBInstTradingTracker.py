@@ -237,6 +237,8 @@ class DTBInstTradingTrackerTask(BaseTask):
             return json.loads(self.params_str or "{}")
         except Exception:
             return {}
+    def taskID(self) -> str:
+        return "LHB_InstituteTrack"
 
     def run(self, conn=None) -> bool:
         if not ak:

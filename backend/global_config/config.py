@@ -128,8 +128,8 @@ class GlobalConfig:
                     GlobalConfig._normalize_schedule_time_for_db(cfg.get("schedule_time")),
                     GlobalConfig._normalize_enabled_for_db(cfg.get("enabled")),
                 )
-                print("[GlobalConfig] SQL:", sql.strip())
-                print("[GlobalConfig] Params:", params)
+                #print("[GlobalConfig] SQL:", sql.strip())
+                #print("[GlobalConfig] Params:", params)
                 try:
                     cursor.execute(sql, params)
                 except Exception as e:

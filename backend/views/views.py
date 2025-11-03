@@ -3,15 +3,15 @@ from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Max, Min
-from django.db.models.functions import TruncMonth
 from django.conf import settings
 from django.utils import timezone
+from stocks.tasks import get_all_tasks, get_all_schedules, get_task_statistics, get_recent_tasks
+from rest_framework import status
 import os
 from pathlib import Path
 
-from .models import StockBasic, StockFinance, UserFollow
-from .serializers import StockBasicSerializer, StockFinanceSerializer, UserFollowSerializer
+from stocks.models import StockBasic, StockFinance, UserFollow
+from stocks.serializers import StockBasicSerializer, StockFinanceSerializer, UserFollowSerializer
 
 
 class StockBasicViewSet(viewsets.ModelViewSet):
@@ -234,7 +234,7 @@ def _start_full_update_thread():
       sync_basic_to_django(conn=conn)
       basics = qdb_get_all_basic(conn=conn)
       _update_ctrl['state']['total_codes'] = len(basics)
-      from .tasks import DownloadDailyTask, QdbOrm
+      from stocks.tasks import DownloadDailyTask, QdbOrm
       orm = QdbOrm(conn)
       task = DownloadDailyTask(orm)
       for item in basics:
@@ -330,7 +330,7 @@ def _start_queue_update_thread():
       if str(project_root) not in sys.path:
         sys.path.append(str(project_root))
       from data_pipeline.collector import qdb_connect
-      from .tasks import DownloadDailyTask, QdbOrm
+      from stocks.tasks import DownloadDailyTask, QdbOrm
       conn = qdb_connect()
       orm = QdbOrm(conn)
       # 预估待处理总数
@@ -622,16 +622,137 @@ class QueueUpdateStopView(APIView):
             _queue_ctrl['stop_event'].set()
         return Response({'running': _queue_ctrl['state']['running'], 'stopped': _queue_ctrl['state']['stopped']})
 
-class QuotePlaceholderView(APIView):
+
+# 任务监控相关API
+class TaskMonitorView(APIView):
+    """
+    任务监控主视图，提供任务统计信息
+    """
     def get(self, request):
-        code = request.query_params.get('code', 'TEST')
-        return Response({
-            'code': code,
-            'quotes': [
-                {'timestamp': '2024-01-01 09:30', 'open_price': 10.0, 'close_price': 10.5, 'high_price': 10.6, 'low_price': 9.9, 'volume': 1000},
-                {'timestamp': '2024-01-01 09:31', 'open_price': 10.5, 'close_price': 10.4, 'high_price': 10.7, 'low_price': 10.3, 'volume': 800},
-            ]
-        })
+        try:
+            from rest_framework import status
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # 获取任务统计信息
+            logger.info("尝试获取任务统计信息")
+            stats = get_task_statistics()
+            
+            return Response({
+                'success': True,
+                'statistics': stats,
+                'timestamp': timezone.now()
+            })
+        except Exception as e:
+            from rest_framework import status
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"获取任务统计信息失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'success': False,
+                'error': str(e),
+                'trace': traceback.format_exc()[:200]  # 限制错误信息长度
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class TaskListView(APIView):
+    """
+    任务列表视图，支持分页和状态过滤
+    """
+    def get(self, request):
+        try:
+            from rest_framework import status
+            # 获取查询参数
+            status_filter = request.GET.get('status', None)
+            limit = int(request.GET.get('limit', 100))
+            
+            # 获取任务列表
+            tasks = get_all_tasks(status=status_filter, limit=min(limit, 500))  # 限制最大返回数量
+            
+            return Response({
+                'success': True,
+                'tasks': tasks,
+                'count': len(tasks)
+            })
+        except Exception as e:
+            from rest_framework import status
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScheduleListView(APIView):
+    """
+    调度任务列表视图
+    """
+    def get(self, request):
+        try:
+            from rest_framework import status
+            import logging
+            import traceback
+            logger = logging.getLogger(__name__)
+            
+            logger.info("尝试获取调度任务列表")
+            # 获取调度任务列表
+            schedules = get_all_schedules()
+            
+            return Response({
+                'success': True,
+                'schedules': schedules,
+                'count': len(schedules)
+            })
+        except Exception as e:
+            from rest_framework import status
+            import logging
+            import traceback
+            logger = logging.getLogger(__name__)
+            logger.error(f"获取调度任务列表失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'success': False,
+                'error': str(e),
+                'trace': traceback.format_exc()[:200]
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class RecentTasksView(APIView):
+    """
+    最近任务视图
+    """
+    def get(self, request):
+        try:
+            from rest_framework import status
+            import logging
+            import traceback
+            logger = logging.getLogger(__name__)
+            
+            logger.info("尝试获取最近任务")
+            # 获取查询参数
+            limit = int(request.GET.get('limit', 50))
+            
+            # 获取最近任务
+            tasks = get_recent_tasks(limit=min(limit, 200))  # 限制最大范围
+            
+            return Response({
+                'success': True,
+                'tasks': tasks,
+                'count': len(tasks)
+            })
+        except Exception as e:
+            from rest_framework import status
+            import logging
+            import traceback
+            logger = logging.getLogger(__name__)
+            logger.error(f"获取最近任务失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'success': False,
+                'error': str(e),
+                'trace': traceback.format_exc()[:200]
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class DataStatusView(APIView):
     def get(self, request):
@@ -642,8 +763,6 @@ class DataStatusView(APIView):
 
         import os
         import psycopg2
-        from psycopg2 import OperationalError
-        from django.db.models import Count, Max
 
         host = os.getenv('QDB_HOST', 'localhost')
         port = int(os.getenv('QDB_PORT', '8812'))
@@ -814,7 +933,7 @@ def _start_full_update_thread():
       sync_basic_to_django(conn=conn)
       basics = qdb_get_all_basic(conn=conn)
       _update_ctrl['state']['total_codes'] = len(basics)
-      from .tasks import DownloadDailyTask, QdbOrm
+      from stocks.tasks import DownloadDailyTask, QdbOrm
       orm = QdbOrm(conn)
       task = DownloadDailyTask(orm)
       for item in basics:
@@ -910,7 +1029,7 @@ def _start_queue_update_thread():
       if str(project_root) not in sys.path:
         sys.path.append(str(project_root))
       from data_pipeline.collector import qdb_connect
-      from .tasks import DownloadDailyTask, QdbOrm
+      from stocks.tasks import DownloadDailyTask, QdbOrm
       conn = qdb_connect()
       orm = QdbOrm(conn)
       # 预估待处理总数
@@ -1222,8 +1341,6 @@ class DataStatusView(APIView):
 
         import os
         import psycopg2
-        from psycopg2 import OperationalError
-        from django.db.models import Count, Max
 
         host = os.getenv('QDB_HOST', 'localhost')
         port = int(os.getenv('QDB_PORT', '8812'))

@@ -36,19 +36,33 @@ class StocksConfig(AppConfig):
         except Exception:
             # 启动期不阻塞服务；如果失败可以在运行时兜底或手动脚本创建
             pass
-         # 同步执行：服务启动时直接加载所有计划任务配置
+        # 同步执行：服务启动时直接加载所有计划任务配置并注册django-q定时任务
         try:
-            from global_config import GlobalConfig
+            import sys
+            from pathlib import Path
+            from django.conf import settings
+            project_root = Path(settings.BASE_DIR).parent
+            if str(project_root) not in sys.path:
+                sys.path.append(str(project_root))
+
+            from data_pipeline.collector import qdb_connect
+            from global_config.config import GlobalConfig
+            from stocks.tasks.scheduler import build_schedules_from_global_config
             conn = qdb_connect()
             if conn:
-                
                 try:
-                    _ = GlobalConfig(conn)  # 读取并缓存 schedule_configs
+                    _ = GlobalConfig(conn)  # 读取并缓存 schedule_configs（同时写回默认值）
                 finally:
                     try:
                         conn.close()
                     except Exception:
                         pass
+                # 构建/更新django-q计划
+                try:
+                    n = build_schedules_from_global_config()
+                    print(f"[StocksConfig.ready] django-q schedules built/updated: {n}")
+                except Exception as e:
+                    print(f"[StocksConfig.ready] build schedules error: {e}")
         except Exception:
             # 启动期不阻塞服务；如果失败可以在运行时兜底或手动脚本创建
             pass

@@ -93,3 +93,30 @@ class ScheduleConfigView(APIView):
             except Exception:
                 pass
             return Response({'error': f'保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ScheduleApplyView(APIView):
+    """立即生效：触发 build_schedules_from_global_config 更新定时任务配置。"""
+    def post(self, request):
+        try:
+            import sys
+            project_root = Path(settings.BASE_DIR).parent
+            if str(project_root) not in sys.path:
+                sys.path.append(str(project_root))
+            
+            # 动态导入 scheduler 模块
+            from stocks.tasks.scheduler import build_schedules_from_global_config
+            
+            # 执行配置更新
+            count = build_schedules_from_global_config()
+            
+            return Response({
+                'success': True,
+                'message': f'定时任务配置已更新',
+                'count': count
+            })
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'更新配置失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
