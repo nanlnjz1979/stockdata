@@ -20,6 +20,7 @@
         <button class="tab" data-target="profile"><i class="ri-user-3-line"></i><span>个人中心</span></button>
         <button class="tab" data-target="status"><i class="ri-database-2-line"></i><span>数据状态</span></button>
         <button class="tab" data-target="update"><i class="ri-refresh-line"></i><span>数据更新</span></button>
+        <button class="tab" data-target="task-monitor"><i class="ri-task-line"></i><span>任务状态</span></button>
         <button class="tab" data-target="tasks"><i class="ri-calendar-check-line"></i><span>计划任务</span></button>
         <button class="tab" data-target="config"><i class="ri-settings-3-line"></i><span>参数配置</span></button>
       </nav>
@@ -162,6 +163,62 @@
           </div>
         </section>
 
+        <!-- 任务查看 -->
+        <section id="task-monitor" class="section">
+          <div class="card">
+            <h3>任务监控统计</h3>
+            <div id="taskMonitorStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-top: 16px;">
+              <div class="stat-card">
+                <div class="stat-number" id="statTotal">0</div>
+                <div class="stat-label">总任务数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number" id="statQueued">0</div>
+                <div class="stat-label">排队中</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number" id="statStarted">0</div>
+                <div class="stat-label">运行中</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number" id="statSuccess">0</div>
+                <div class="stat-label">成功</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number" id="statFailed">0</div>
+                <div class="stat-label">失败</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-number" id="statSchedules">0</div>
+                <div class="stat-label">调度任务</div>
+              </div>
+            </div>
+            <div style="margin-top: 16px; text-align: right;">
+              <button class="btn" id="taskMonitorRefresh">刷新</button>
+            </div>
+          </div>
+          
+          <div class="card">
+            <h3>最近任务</h3>
+            <table class="table">
+              <thead>
+                <tr><th>名称</th><th>函数</th><th>状态</th><th>开始时间</th><th>结束时间</th><th>结果</th></tr>
+              </thead>
+              <tbody id="recentTasksTable"></tbody>
+            </table>
+          </div>
+          
+          <div class="card">
+            <h3>调度任务列表</h3>
+            <table class="table">
+              <thead>
+                <tr><th>名称</th><th>类型</th><th>函数</th><th>下次运行</th><th>状态</th></tr>
+              </thead>
+              <tbody id="schedulesTable"></tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- 计划任务 -->
         <section id="tasks" class="section">
           <div class="card">
@@ -199,6 +256,7 @@
               <button class="btn" id="configReload">刷新</button>
               <button class="btn" id="configAdd">添加</button>
               <button class="btn outline" id="configSave">保存</button>
+              <button class="btn warning" id="configApply">立即生效</button>
             </div>
             <table class="table">
               <thead>

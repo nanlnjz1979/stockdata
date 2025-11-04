@@ -66,3 +66,6 @@ class StocksConfig(AppConfig):
         except Exception:
             # 启动期不阻塞服务；如果失败可以在运行时兜底或手动脚本创建
             pass
+
+        
+        

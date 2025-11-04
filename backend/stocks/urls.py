@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from views.views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, TaskMonitorView, ScheduleListView, RecentTasksView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
+from views.views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
+from views.taskview import TaskMonitorView, QTaskListView, ScheduleListView, RecentTasksView
 from .data.daily import DailyDataView
 from .data.basic import StocksSHView, StocksSZView, StocksBJView
 from views.config_views import ScheduleConfigView, ScheduleApplyView
@@ -30,10 +31,11 @@ urlpatterns = [
     
     # 任务监控相关API
     path('tasks/monitor', TaskMonitorView.as_view()),           # 任务统计
-    path('tasks/list', TaskListView.as_view()),                 # 任务列表
+    path('tasks/list', QTaskListView.as_view()),                 # 任务列表
     path('tasks/schedules', ScheduleListView.as_view()),        # 调度任务列表
     path('tasks/recent', RecentTasksView.as_view()),            # 最近任务
     
+    #股票数据相关API，用来给qweshare的接口调用
     path('stocks/data/daily', DailyDataView.as_view()),# 日线数据
     path('stocks/data/basic/sh', StocksSHView.as_view()),# 上证基础数据
     path('stocks/data/basic/sz', StocksSZView.as_view()),# 深证基础数据

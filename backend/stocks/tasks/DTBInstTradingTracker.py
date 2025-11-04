@@ -25,41 +25,8 @@ def _num(x) -> Optional[float]:
     except Exception:
         return None
 
-
-
-
-def _fetch_lhb_day(date_s: str):
-    """尽可能使用 Akshare 拉取指定日期的龙虎榜明细。返回 DataFrame 或 None。"""
-    if not ak:
-        return None
-    # 兼容多种可能的函数名/参数格式
-    for fn_name in [
-        "stock_lhb_detail_em",  # EastMoney
-        "stock_lhb_detail_sina",  # Sina（若可用）
-    ]:
-        try:
-            fn = getattr(ak, fn_name, None)
-            if not fn:
-                continue
-            # 兼容 YYYYMMDD / YYYY-MM-DD 两种日期格式
-            try:
-                df = fn(date=date_s)
-            except Exception:
-                try:
-                    d = datetime.strptime(date_s, "%Y%m%d").strftime("%Y-%m-%d")
-                    df = fn(date=d)
-                except Exception:
-                    df = None
-            if df is not None and not getattr(df, "empty", True):
-                return df
-        except Exception:
-            continue
-    return None
-
-
-def _aggregate_lhb(codes: List[str], start_date: datetime, end_date: datetime) -> List[Tuple[str, str, float, float, float, float, float]]:
+def _aggregate_lhb(day: str) -> List[Tuple[str, str, float, float, float, float, float]]:
     """
-    在 [start_date, end_date] 区间内按代码聚合：
     返回列表项为 (code, name, buy_amount, buy_times, sell_amount, sell_times, net_amount)
     金额单位按“万”处理（多数 Akshare 接口已是万元）。
     """
@@ -68,74 +35,34 @@ def _aggregate_lhb(codes: List[str], start_date: datetime, end_date: datetime) -
     if not codes:
         return []
 
-    accum: Dict[str, Dict[str, Any]] = {}
-    day = start_date
-    while day <= end_date:
-        ds = day.strftime("%Y%m%d")
-        df = _fetch_lhb_day(ds)
-        if df is not None and not df.empty:
-            # 兼容常见列名
-            # 期望列：股票代码 / 股票简称 / 买入金额(万元) / 卖出金额(万元) / 净额(万元)
-            code_col = None
-            name_col = None
-            buy_col = None
-            sell_col = None
-            net_col = None
-            cols = list(df.columns)
-            # 中文列
-            for c in cols:
-                if ("代码" in str(c)) and (code_col is None):
-                    code_col = c
-                if ("名称" in str(c) or "简称" in str(c)) and (name_col is None):
-                    name_col = c
-                if ("买入" in str(c)) and ("万" in str(c)) and (buy_col is None):
-                    buy_col = c
-                if ("卖出" in str(c)) and ("万" in str(c)) and (sell_col is None):
-                    sell_col = c
-                if ("净额" in str(c)) and ("万" in str(c)) and (net_col is None):
-                    net_col = c
-            # 备选英文或无单位列名
-            if not buy_col:
-                for c in cols:
-                    if "buy" in str(c).lower():
-                        buy_col = c; break
-            if not sell_col:
-                for c in cols:
-                    if "sell" in str(c).lower():
-                        sell_col = c; break
-            if not net_col:
-                for c in cols:
-                    if "net" in str(c).lower():
-                        net_col = c; break
-            # 遍历并按 codes 过滤
-            for _, r in df.iterrows():
-                cd = str(r.get(code_col) or "").strip()
-                if cd not in codes:
-                    continue
-                name = str(r.get(name_col) or cd)
-                buy_amt = _num(r.get(buy_col)) or 0.0
-                sell_amt = _num(r.get(sell_col)) or 0.0
-                net_amt = _num(r.get(net_col)) if net_col else (buy_amt - sell_amt)
-                item = accum.get(cd)
-                if not item:
-                    item = {
-                        "name": name,
-                        "buy_amount": 0.0,
-                        "buy_times": 0.0,
-                        "sell_amount": 0.0,
-                        "sell_times": 0.0,
-                        "net_amount": 0.0,
-                    }
-                    accum[cd] = item
-                item["name"] = name or item["name"]
-                item["buy_amount"] += float(buy_amt)
-                item["sell_amount"] += float(sell_amt)
-                item["net_amount"] += float(net_amt or (buy_amt - sell_amt))
-                if buy_amt and buy_amt > 0:
-                    item["buy_times"] += 1.0
-                if sell_amt and sell_amt > 0:
-                    item["sell_times"] += 1.0
-        day += timedelta(days=1)
+    try:
+        df = ak.stock_lhb_jgzz_sina(day)
+        if df is None or df.empty:
+            logger.warning("ak.stock_lhb_jgzz_sina(%s) 返回空数据", query_type)
+            return False
+    except Exception as e:
+        logger.exception("获取龙虎榜数据失败: %s", e)
+        return False
+    # 按 DataFrame 列名聚合
+    accum: Dict[str, Dict[str, float]] = {}
+    for _, row in df.iterrows():
+        code = str(row["股票代码"]).zfill(6)
+        name = str(row["股票名称"])
+        buy_amt = float(row["累积买入额"])
+        buy_cnt = int(row["买入次数"])
+        sell_amt = float(row["累积卖出额"])
+        sell_cnt = int(row["卖出次数"])
+        net_amt = float(row["净额"])
+
+        if code not in accum:
+            accum[code] = {"name": name, "buy_amount": 0.0, "buy_times": 0,
+                           "sell_amount": 0.0, "sell_times": 0, "net_amount": 0.0}
+
+        accum[code]["buy_amount"] += buy_amt
+        accum[code]["buy_times"] += buy_cnt
+        accum[code]["sell_amount"] += sell_amt
+        accum[code]["sell_times"] += sell_cnt
+        accum[code]["net_amount"] += net_amt
 
     out: List[Tuple[str, str, float, float, float, float, float]] = []
     for cd, v in accum.items():
@@ -153,7 +80,7 @@ def _aggregate_lhb(codes: List[str], start_date: datetime, end_date: datetime) -
     return out
 
 
-def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, float]], query_type: int, conn=None) -> int:
+def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, float]], day: int, conn=None) -> int:
     if not rows:
         return 0
     conn_local = conn or (qdb_connect() if qdb_connect else None)
@@ -227,9 +154,44 @@ class DTBInstTradingTrackerTask(BaseTask):
     def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 0) -> str:
         self.task_type = task_type
         self.task_desc = task_desc
-        self.params_str = self._ensure_json_str(params)
         self.priority = priority
+        self.params_str = self._ensure_json_str(params)
+        
+        last_update_date = self._get_last_update_date()
+        
+        self.params_str=self._ensure_json_str({
+            "last_update_date": str(last_update_date),
+        })
         return super().generate()
+
+    def _get_last_update_date(self) -> Optional[datetime.date]:
+        """
+        返回龙虎榜机构追踪表（inst_trading_tracker）中最后一次更新的日期。
+        若表为空或查询失败，返回 None。
+        """
+        conn = None
+        try:
+            conn = qdb_connect() if qdb_connect else None
+            if not conn:
+                logger.warning("QuestDB 连接失败，无法获取最后更新日期")
+                return None
+            cur = conn.cursor()
+            cur.execute("SELECT max(ingest_date) FROM inst_trading_tracker")
+            row = cur.fetchone()
+            if row and row[0]:
+                # QuestDB 返回的 date 类型可直接使用
+                return row[0]
+            return None
+        except Exception as e:
+            logger.exception("查询最后更新日期失败: %s", e)
+            return None
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        
 
     def _parse_params(self) -> Dict[str, Any]:
         try:
@@ -241,65 +203,29 @@ class DTBInstTradingTrackerTask(BaseTask):
         return "LHB_InstituteTrack"
 
     def run(self, conn=None) -> bool:
-        if not ak:
-            logger.error("依赖不可用：akshare 未导入")
-            return False
-        params = self._parse_params()
-        # 收集代码
-        codes: List[str] = []
-        code_single = params.get("code")
-        codes_multi = params.get("codes")
-        if isinstance(code_single, str) and code_single.strip():
-            codes.append(code_single.strip())
-        if isinstance(codes_multi, list):
-            for c in codes_multi:
-                if isinstance(c, str) and c.strip():
-                    codes.append(c.strip())
-        codes = list(dict.fromkeys(codes))
-        if not codes:
-            logger.warning("未提供有效的股票代码（params 需包含 'code' 或 'codes'）")
-            return False
+        # 读取任务参数
+        if conn is None:
+            conn = qdb_connect()
+        from tasksOrm import QtasksOrm
+        orm = QtasksOrm(conn)
+        cfgs = orm.list_tasks(self.taskID()) # task_id, task_type, task_desc, task_params, priority, status
 
-        # 时间窗
-        qt = int(params.get("query_type") or 5)
-        if qt not in (5, 10, 30, 60):
-            qt = 5
-        # 结束日期（默认今天）
-        end_s = params.get("end_date")
-        try:
-            if end_s:
-                if "-" in str(end_s):
-                    end_date = datetime.strptime(str(end_s), "%Y-%m-%d")
-                else:
-                    end_date = datetime.strptime(str(end_s), "%Y%m%d")
-            else:
-                end_date = datetime.now()
-        except Exception:
-            end_date = datetime.now()
-        start_date = end_date - timedelta(days=qt - 1)
+        for item in cfgs:
+            task_params = item.get("task_params", "{}")
+            last_update_date = task_params.get("last_update_date", None)
+            # 仅当 last_update_date 早于今天时才继续拉取数据
 
-        # 聚合
-        agg_rows = _aggregate_lhb(codes, start_date=start_date, end_date=end_date)
-        if not agg_rows:
-            logger.warning("在时间窗内未聚合到龙虎榜数据: codes=%s, query_type=%s", codes, qt)
-            return False
+            if last_update_date and last_update_date <= datetime.now().date():
+                continue
+            # 拉取龙虎榜数据
+            for day in ["5", "10", "30", "60"]:
+                
+                aggregated = _aggregate_lhb(day)
 
-        conn_local = conn
-        if not conn_local:
-            logger.error("QuestDB 连接失败")
-            return False
-        try:
-            saved = _insert_inst_trading(agg_rows, query_type=qt, conn=conn_local)
-            logger.info(
-                "任务完成：codes=%s, query_type=%s, total_saved=%s",
-                codes,
-                qt,
-                saved,
-            )
-            return bool(saved)
-        finally:
-            if conn is None:
-                try:
-                    conn_local.close()
-                except Exception:
-                    pass
+                if not aggregated:
+                    logger.info("在 %s未找到指定天数 %s 的龙虎榜数据", last_update_date, day)
+
+            # 写入 QuestDB
+            inserted = _insert_inst_trading(aggregated, int(day), conn=conn)
+            logger.info("成功写入 %s 条机构龙虎榜聚合记录", inserted)
+            return inserted > 0

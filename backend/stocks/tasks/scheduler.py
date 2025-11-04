@@ -76,7 +76,7 @@ def run_config_job(config_id: str) -> bool:
     import json
     try:
         # 避免循环依赖，按需导入具体任务实现
-        from stocks.tasks import DownloadDailyTask, QdbOrm, DTBInstTradingTrackerTask
+        from stocks.tasks import DownloadDailyTask, QtasksOrm, DTBInstTradingTrackerTask
     except Exception as e:
         print(f"[Scheduler] Import tasks failed: {e}")
         return False
@@ -94,19 +94,10 @@ def run_config_job(config_id: str) -> bool:
         task_desc = cfg.get('task_desc') or cfg.get('name') or config_id
 
         # 将任务写入 QuestDB 的 tasks 表，并执行实际逻辑
-        orm = QdbOrm(conn)
+        orm = QtasksOrm(conn)
         if config_id in tasks:
             task = tasks[config_id](orm)
             task.generate(task_type=config_id, task_desc=task_desc, params=params, priority=0)
-            try:
-                orm.update_task_status(task.task_id, '待处理')
-            except Exception:
-                pass
-            ok = task.run(conn=conn)
-            try:
-                orm.update_task_status(task.task_id, '成功' if ok else '失败')
-            except Exception:
-                pass
             return bool(ok)
         else:
             # 未知配置ID：仅记录日志
@@ -176,6 +167,7 @@ def build_schedules_from_global_config() -> int:
                   f"schedule_type={sch.schedule_type}, "
                   f"next_run={sch.next_run}, "
                   f"repeats={sch.repeats}")
+        run_config_job("LHB_InstituteTrack")
         return count
     finally:
         try:
@@ -183,3 +175,4 @@ def build_schedules_from_global_config() -> int:
                 conn.close()
         except Exception:
             pass
+    

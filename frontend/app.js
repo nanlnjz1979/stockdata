@@ -42,7 +42,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   function showTab(target){
     qsa('.section').forEach(s => s.classList.toggle('active', s.id === target));
     tabs.forEach(t => t.classList.toggle('active', t.dataset.target === target));
-    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', tasks: '计划任务', config: '参数配置' };
+    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', 'task-monitor': '任务状态', tasks: '计划任务', config: '参数配置' };
     const title = titleMap[target] || '模块';
     qs('#pageTitle').textContent = title;
   }
@@ -80,6 +80,200 @@ const API_BASE = 'http://127.0.0.1:8000';
       chart.setOption({ series: [{ data: baseData.map(d => d[1]) }] });
     });
   }
+})();
+
+// 任务监控模块
+(function initTaskMonitor() {
+  const monitorSection = qs('#task-monitor');
+  if (!monitorSection) return;
+
+  const refreshBtn = qs('#taskMonitorRefresh');
+  const statsSection = qs('#taskMonitorStats');
+  const recentTasksTable = qs('#recentTasksTable');
+  const schedulesTable = qs('#schedulesTable');
+  
+  // 加载所有数据
+  function loadAllData() {
+    loadStatistics();
+    loadRecentTasks();
+    loadSchedules();
+  }
+  
+  // 添加刷新按钮事件监听
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '刷新中...';
+      
+      loadAllData().finally(() => {
+        setTimeout(() => {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '刷新';
+        }, 500);
+      });
+    });
+  }
+  
+  // 当任务监控页面激活时自动加载数据
+  const tabs = qsa('.sidebar .tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.dataset.target === 'task-monitor') {
+        loadAllData();
+      }
+    });
+  });
+  
+  // 初始加载（如果当前就是任务监控页面）
+  if (monitorSection.classList.contains('active')) {
+    loadAllData();
+  }
+
+  // 格式化时间
+  function formatDateTime(dateTime) {
+    if (!dateTime) return '-';
+    const date = new Date(dateTime);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  }
+
+  // 获取状态样式类名
+  function getStatusClass(status) {
+    const statusMap = {
+      '成功': 'status-success',
+      '失败': 'status-failed',
+      '运行中': 'status-started',
+      '排队中': 'status-queued'
+    };
+    return statusMap[status] || '';
+  }
+
+  // 加载任务统计
+  async function loadStatistics() {
+    try {
+      const response = await fetch(`${API_BASE}/api/tasks/monitor`);
+      const data = await response.json();
+      
+      if (data.success && data.statistics) {
+        const stats = data.statistics;
+        qs('#statTotal').textContent = stats.total || 0;
+        qs('#statQueued').textContent = stats.queued || 0;
+        qs('#statStarted').textContent = stats.started || 0;
+        qs('#statSuccess').textContent = stats.success || 0;
+        qs('#statFailed').textContent = stats.failed || 0;
+        qs('#statSchedules').textContent = stats.schedules || 0;
+      }
+    } catch (error) {
+      console.error('加载任务统计失败:', error);
+    }
+  }
+
+  // 加载最近任务
+  async function loadRecentTasks() {
+    try {
+      const response = await fetch(`${API_BASE}/api/tasks/recent?limit=20`);
+      const data = await response.json();
+      
+      if (data.success && data.tasks) {
+        recentTasksTable.innerHTML = '';
+        
+        data.tasks.forEach(task => {
+          const tr = document.createElement('tr');
+          const statusClass = getStatusClass(task.status);
+          
+          tr.innerHTML = `
+            <td>${task.name || '未命名任务'}</td>
+            <td>${task.func || '-'}</td>
+            <td class="${statusClass}">${task.status}</td>
+            <td>${formatDateTime(task.started)}</td>
+            <td>${formatDateTime(task.stopped)}</td>
+            <td>${task.result || '-'}</td>
+          `;
+          
+          recentTasksTable.appendChild(tr);
+        });
+      }
+    } catch (error) {
+      console.error('加载最近任务失败:', error);
+      recentTasksTable.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #dc3545;">加载失败</td></tr>';
+    }
+  }
+
+  // 加载调度任务
+  async function loadSchedules() {
+    try {
+      const response = await fetch(`${API_BASE}/api/tasks/schedules`);
+      const data = await response.json();
+      
+      if (data.success && data.schedules) {
+        schedulesTable.innerHTML = '';
+        
+        data.schedules.forEach(schedule => {
+          const tr = document.createElement('tr');
+          // 根据repeats_status设置状态样式
+          let statusClass = '';
+          if (schedule.repeats_status === '已禁用') {
+            statusClass = 'status-disabled';
+          } else if (schedule.repeats_status === '无限重复') {
+            statusClass = 'status-infinite';
+          } else {
+            statusClass = 'status-limited';
+          }
+          
+          // 根据是否有错误日志决定名称颜色
+          const nameClass = schedule.err_log ? 'status-failed' : 'status-success';
+          
+          tr.innerHTML = `
+            <td class="${nameClass}">${schedule.name}</td>
+            <td>${schedule.schedule_type}</td>
+            <td>${schedule.func || '-'}</td>
+            <td>${formatDateTime(schedule.next_run)}</td>
+            <td class="${statusClass}">${schedule.repeats_status || '未知'}</td>
+          `;
+          
+          schedulesTable.appendChild(tr);
+        });
+      }
+    } catch (error) {
+      console.error('加载调度任务失败:', error);
+      schedulesTable.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #dc3545;">加载失败</td></tr>';
+    }
+  }
+
+  // 刷新所有数据
+  async function refreshAll() {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = '刷新中...';
+    
+    try {
+      await Promise.all([
+        loadStatistics(),
+        loadRecentTasks(),
+        loadSchedules()
+      ]);
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = '刷新';
+    }
+  }
+
+  // 绑定刷新按钮事件
+  refreshBtn.addEventListener('click', refreshAll);
+
+  // 初始加载数据
+  refreshAll();
+
+  // 自动刷新（每30秒）
+  setInterval(() => {
+    refreshAll();
+  }, 30000);
+
 })();
 
 // 查询接口占位
@@ -552,6 +746,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   const reloadBtn = qs('#configReload');
   const saveBtn = qs('#configSave');
   const addBtn = qs('#configAdd');
+  const applyBtn = qs('#configApply');
   if (!tbody) return;
 
   function render(items){
@@ -590,6 +785,38 @@ const API_BASE = 'http://127.0.0.1:8000';
     `;
     tbody.appendChild(tr);
   }
+
+  // 立即生效按钮点击事件
+  applyBtn.addEventListener('click', async () => {
+    try {
+      // 显示加载状态
+      applyBtn.disabled = true;
+      applyBtn.textContent = '处理中...';
+      
+      // 调用API#const 
+      const response = await fetch(`${API_BASE}/api/configs/schedule/apply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const data = await response.json();
+      
+      // 显示结果提示
+      if (data.success) {
+        toast(`定时任务配置已更新，共配置 ${data.count || 0} 个任务`);
+      } else {
+        toast(`操作失败: ${data.error || '未知错误'}`, 'error');
+      }
+    } catch (error) {
+      toast(`网络错误: ${error.message}`, 'error');
+    } finally {
+      // 恢复按钮状态
+      applyBtn.disabled = false;
+      applyBtn.textContent = '立即生效';
+    }
+  });
 
   // 事件委托：删除行
   tbody.addEventListener('click', (e) => {

@@ -75,6 +75,63 @@ body { font-family: ui-sans-serif, Segoe UI, Arial, sans-serif; margin: 0; backg
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.05); }
 .card h3 { margin: 0 0 8px; font-size: 16px; }
 .status { color: var(--muted); font-size: 12px; }
+
+/* 任务监控统计卡片样式 */
+.stat-card {
+  background: var(--surface);
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.stat-number {
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* 状态颜色 */
+.status-success {
+  color: #28a745;
+}
+
+.status-failed {
+  color: #dc3545;
+}
+
+.status-started {
+  color: var(--primary);
+}
+
+.status-queued {
+  color: #ffc107;
+}
+
+.status-enabled {
+  color: #28a745;
+}
+
+.status-disabled {
+  color: var(--muted);
+}
+
+/* 任务重复状态样式 */
+.status-infinite {
+  color: #28a745; /* 绿色 */
+  font-weight: 500;
+}
+
+.status-limited {
+  color: #ff9800;
+  font-weight: 500;
+}
 .table { width: 100%; border-collapse: collapse; background: var(--surface); }
 .table th, .table td { border: 1px solid var(--border); padding: 8px 10px; font-size: 13px; }
 .table th { background: rgba(22, 119, 255, 0.06); color: var(--text); }

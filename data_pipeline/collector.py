@@ -279,18 +279,6 @@ def _int(x):
     except Exception:
         return None
 
-
-def ensure_tables():
-    """确保新表存在（避免当前环境无法执行makemigrations/migrate）。"""
-    from django.db import connection
-    from stocks.models import StockDaily, StockUpdateStatus
-    existing = set(connection.introspection.table_names())
-    with connection.schema_editor() as editor:
-        if StockDaily._meta.db_table not in existing:
-            editor.create_model(StockDaily)
-        if StockUpdateStatus._meta.db_table not in existing:
-            editor.create_model(StockUpdateStatus)
-
 def sync_basic_to_django(conn=None):
     """将 QuestDB 中的基础股票信息同步到 Django ORM（StockBasic）。"""
     try:

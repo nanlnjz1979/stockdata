@@ -1,5 +1,6 @@
 from .base import BaseTask
-from .download_daily import DownloadDailyTask, QdbOrm
+from .download_daily import DownloadDailyTask
+from .tasksOrm import QtasksOrm
 from .DTBInstTradingTracker import DTBInstTradingTrackerTask
 from .incremental_update import IncrementalUpdateTask
 from .scheduler import run_config_job
@@ -16,7 +17,7 @@ try:
     __all__ = [
         "BaseTask", 
         "DownloadDailyTask", 
-        "QdbOrm", 
+        "QtasksOrm", 
         "DTBInstTradingTrackerTask", 
         "IncrementalUpdateTask",
         'get_all_tasks',
