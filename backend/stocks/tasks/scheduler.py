@@ -8,7 +8,7 @@ from django.utils import timezone
 from pathlib import Path
 from django.conf import settings
 import sys
-
+from db.db_pool import get_conn, put_conn
 # 动态引入项目根外的模块（data_pipeline, global_config）
 project_root = Path(settings.BASE_DIR).parent
 if str(project_root) not in sys.path:
@@ -83,7 +83,7 @@ def run_config_job(config_id: str) -> bool:
 
     conn = None
     try:
-        conn = qdb_connect()
+        conn = get_conn()
         gc = GlobalConfig(conn)
         cfg = gc.get_schedule_config(config_id) or {}
         params_raw = cfg.get('params')
@@ -109,7 +109,7 @@ def run_config_job(config_id: str) -> bool:
     finally:
         try:
             if conn:
-                conn.close()
+                put_conn(conn)
         except Exception:
             pass
 

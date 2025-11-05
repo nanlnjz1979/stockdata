@@ -3,7 +3,7 @@ djangorestframework==3.14.0
 djangorestframework-simplejwt==5.3.1
 channels==4.0.0
 daphne==4.0.0
-redis==5.0.1
+redis>=3.5.3,<4.0.0
 django-cors-headers==4.3.1
 APScheduler==3.10.4
 psycopg2-binary==2.9.11

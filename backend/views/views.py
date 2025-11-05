@@ -64,8 +64,10 @@ class TaskListView(APIView):
         try:
             import psycopg2
             from psycopg2 import OperationalError
-        except Exception:
-            return Response({'error': '缺少 psycopg2 依赖，无法连接 QuestDB'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # 导入连接池
+            from db.db_pool import get_conn, put_conn
+        except Exception as e:
+            return Response({'error': f'缺少依赖: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         host = os.getenv('QDB_HOST', 'localhost')
         port = int(os.getenv('QDB_PORT', '8812'))
@@ -92,8 +94,9 @@ class TaskListView(APIView):
             page_size = 50
         page_size = min(page_size, 200)
 
+        # 尝试使用连接池获取连接
         try:
-            conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
+            conn = get_conn()
         except OperationalError as e:
             return Response({'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
@@ -151,9 +154,14 @@ class TaskListView(APIView):
         statuses = ['待处理','处理中','成功','失败','重试中','已取消']
 
         try:
-            conn.close()
+            # 使用连接池归还连接
+            put_conn(conn)
         except Exception:
-            pass
+            try:
+                # 备选方案：直接关闭连接
+                conn.close()
+            except Exception:
+                pass
 
         total_pages = (total + page_size - 1) // page_size if page_size else 1
         return Response({
@@ -170,239 +178,136 @@ class TaskListView(APIView):
 import threading
 import time
 
-_update_ctrl = {
-  'thread': None,
-  'stop_event': threading.Event(),
-  'state': {
-    'running': False,
-    'paused': False,
-    'stopped': False,
-    'updated_count': 0,
-    'total_codes': 0,
-    'current_code': None,
-    'started_at': None,
-    'ended_at': None,
-  }
-}
+# 导入队列更新相关功能
+from stocks.tasks.QueueUpdateTask import get_queue_ctrl
 
-# 队列更新独立控制器
-_queue_ctrl = {
-  'thread': None,
-  'stop_event': threading.Event(),
-  'state': {
-    'running': False,
-    'paused': False,
-    'stopped': False,
-    'updated_count': 0,
-    'total_codes': 0,
-    'current_code': None,
-    'started_at': None,
-    'ended_at': None,
-  }
+_update_ctrl = {
+    'thread': None,
+    'stop_event': threading.Event(),
+    'state': {
+        'running': False,
+        'paused': False,
+        'stopped': False,
+        'updated_count': 0,
+        'total_codes': 0,
+        'current_code': None,
+        'started_at': None,
+        'ended_at': None,
+    }
 }
 
 def _start_full_update_thread():
-  if _update_ctrl['thread'] and _update_ctrl['state']['running']:
-    return False
-  _update_ctrl['stop_event'].clear()
-  _update_ctrl['state'].update({
-    'running': True,
-    'paused': False,
-    'stopped': False,
-    'updated_count': 0,
-    'total_codes': 0,
-    'current_code': None,
-    'started_at': timezone.now(),
-    'ended_at': None,
-  })
-  
-  def worker():
-    try:
-      import sys
-      project_root = Path(settings.BASE_DIR).parent
-      if str(project_root) not in sys.path:
-        sys.path.append(str(project_root))
-      from data_pipeline.collector import qdb_connect,  populate_stock_basic_if_empty, qdb_get_all_basic, sync_basic_to_django
-      conn = qdb_connect()
-      
-      if not conn:
-        _update_ctrl['state']['error'] = 'QuestDB连接失败'
-        raise RuntimeError('QuestDB连接失败')
+    if _update_ctrl['thread'] and _update_ctrl['state']['running']:
+        return False
+    _update_ctrl['stop_event'].clear()
+    _update_ctrl['state'].update({
+        'running': True,
+        'paused': False,
+        'stopped': False,
+        'updated_count': 0,
+        'total_codes': 0,
+        'current_code': None,
+        'started_at': timezone.now(),
+        'ended_at': None,
+    })
+    
+    def worker():
+        try:
+            import sys
+            project_root = Path(settings.BASE_DIR).parent
+            if str(project_root) not in sys.path:
+                sys.path.append(str(project_root))
+            from data_pipeline.collector import qdb_connect,    populate_stock_basic_if_empty, qdb_get_all_basic, sync_basic_to_django
+            conn = qdb_connect()
+            
+            if not conn:
+                _update_ctrl['state']['error'] = 'QuestDB连接失败'
+                raise RuntimeError('QuestDB连接失败')
 
-      
-      populate_stock_basic_if_empty(conn=conn)
-      sync_basic_to_django(conn=conn)
-      basics = qdb_get_all_basic(conn=conn)
-      _update_ctrl['state']['total_codes'] = len(basics)
-      from stocks.tasks import DownloadDailyTask, QtasksOrm
-      orm = QtasksOrm(conn)
-      task = DownloadDailyTask(orm)
-      for item in basics:
-        code = item.get('code')
-        market = item.get('market')
-        listing_date = item.get('listing_date')
-        if not listing_date:
-          start_date = '19841118'
-        else:
-          try:
-            if hasattr(listing_date, 'strftime'):
-              start_date = listing_date.strftime("%Y%m%d")
-            else:
-              s = str(listing_date)
-              start_date = s.replace('-', '')
-          except Exception:
-            start_date = '19841118'
-        if not code:
-          continue
-        task.generate("download_daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
-      dl_daily = orm.list_tasks(status="待处理", task_type="download_daily", limit=100000)
-      for item in dl_daily:
-        if _update_ctrl['stop_event'].is_set():
-          break
-        while _update_ctrl['state']['paused']:
-          if _update_ctrl['stop_event'].is_set():
-            break
-          time.sleep(0.2)
-        if _update_ctrl['stop_event'].is_set():
-          break
-        try:
-          import json
-          params = json.loads(item.get('task_params') or '{}')
-        except Exception:
-          params = {}
-        code = params.get('code')
-        _update_ctrl['state']['current_code'] = code
-        t = DownloadDailyTask(orm)
-        t.task_id = item.get('task_id')
-        t.task_type = item.get('task_type')
-        t.task_desc = item.get('task_desc')
-        t.params_str = item.get('task_params') or '{}'
-        t.priority = item.get('priority') or 0
-        try:
-          orm.update_task_status(t.task_id, "处理中")
-        except Exception:
-          pass
-        try:
-          ok = t.run(conn=conn)
-        except Exception:
-          ok = False
-        try:
-          orm.update_task_status(t.task_id, "成功" if ok else "失败")
-        except Exception:
-          pass
-        _update_ctrl['state']['updated_count'] += 1
-        time.sleep(0.01)
-      try:
-        conn.close()
-      except Exception:
-        pass
-    finally:
-      _update_ctrl['state']['running'] = False
-      _update_ctrl['state']['stopped'] = _update_ctrl['stop_event'].is_set()
-      _update_ctrl['state']['ended_at'] = timezone.now()
-      _update_ctrl['thread'] = None
-  t = threading.Thread(target=worker, daemon=True)
-  _update_ctrl['thread'] = t
-  t.start()
-  return True
+            
+            populate_stock_basic_if_empty(conn=conn)
+            sync_basic_to_django(conn=conn)
+            basics = qdb_get_all_basic(conn=conn)
+            _update_ctrl['state']['total_codes'] = len(basics)
+            from stocks.tasks import DownloadDailyTask, QtasksOrm
+            orm = QtasksOrm(conn)
+            task = DownloadDailyTask(orm)
+            for item in basics:
+                code = item.get('code')
+                market = item.get('market')
+                listing_date = item.get('listing_date')
+                if not listing_date:
+                    start_date = '19841118'
+                else:
+                    try:
+                        if hasattr(listing_date, 'strftime'):
+                            start_date = listing_date.strftime("%Y%m%d")
+                        else:
+                            s = str(listing_date)
+                            start_date = s.replace('-', '')
+                    except Exception:
+                        start_date = '19841118'
+                if not code:
+                    continue
+                task.generate("download_daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
+            dl_daily = orm.list_tasks(status="待处理", task_type="download_daily", limit=100000)
+            for item in dl_daily:
+                if _update_ctrl['stop_event'].is_set():
+                    break
+                while _update_ctrl['state']['paused']:
+                    if _update_ctrl['stop_event'].is_set():
+                        break
+                    time.sleep(0.2)
+                if _update_ctrl['stop_event'].is_set():
+                    break
+                try:
+                    import json
+                    params = json.loads(item.get('task_params') or '{}')
+                except Exception:
+                    params = {}
+                code = params.get('code')
+                _update_ctrl['state']['current_code'] = code
+                t = DownloadDailyTask(orm)
+                t.task_id = item.get('task_id')
+                t.task_type = item.get('task_type')
+                t.task_desc = item.get('task_desc')
+                t.params_str = item.get('task_params') or '{}'
+                t.priority = item.get('priority') or 0
+                try:
+                    orm.update_task_status(t.task_id, "处理中")
+                except Exception:
+                    pass
+                try:
+                    ok = t.run(conn=conn)
+                except Exception:
+                    ok = False
+                try:
+                    orm.update_task_status(t.task_id, "成功" if ok else "失败")
+                except Exception:
+                    pass
+                _update_ctrl['state']['updated_count'] += 1
+                time.sleep(0.01)
+            try:
+                conn.close()
+            except Exception:
+                pass
+        finally:
+            _update_ctrl['state']['running'] = False
+            _update_ctrl['state']['stopped'] = _update_ctrl['stop_event'].is_set()
+            _update_ctrl['state']['ended_at'] = timezone.now()
+            _update_ctrl['thread'] = None
+    t = threading.Thread(target=worker, daemon=True)
+    _update_ctrl['thread'] = t
+    t.start()
+    return True
 
 # 队列更新：从任务列表中取任务并执行
 
-def _start_queue_update_thread():
-  if _queue_ctrl['thread'] and _queue_ctrl['state']['running']:
-    return False
-  _queue_ctrl['stop_event'].clear()
-  _queue_ctrl['state'].update({
-    'running': True,
-    'paused': False,
-    'stopped': False,
-    'updated_count': 0,
-    'total_codes': 0,
-    'current_code': None,
-    'started_at': timezone.now(),
-    'ended_at': None,
-  })
 
-  def worker():
-    try:
-      import sys
-      project_root = Path(settings.BASE_DIR).parent
-      if str(project_root) not in sys.path:
-        sys.path.append(str(project_root))
-      from data_pipeline.collector import qdb_connect
-      from stocks.tasks import DownloadDailyTask, QtasksOrm
-      conn = qdb_connect()
-      orm = QtasksOrm(conn)
-      # 预估待处理总数
-      pending = orm.list_tasks(status="待处理", limit=100000)
-      _queue_ctrl['state']['total_codes'] = len(pending)
-      # 按优先级逐个处理
-      idx = 0
-      while not _queue_ctrl['stop_event'].is_set():
-        while _queue_ctrl['state']['paused']:
-          if _queue_ctrl['stop_event'].is_set():
-            break
-          time.sleep(0.2)
-        if _queue_ctrl['stop_event'].is_set():
-          break
-        # 取下一个待处理任务
-        item = orm.next_pending_task()
-        if not item:
-          break
-        tid = item.get('task_id')
-        try:
-          claimed = orm.claim_task(tid)
-        except Exception:
-          claimed = True
-        if not claimed:
-          # 未成功认领，稍后重试
-          time.sleep(0.2)
-          continue
-        # 解析参数，填充当前代码便于前端显示
-        try:
-          import json
-          params = json.loads(item.get('task_params') or '{}')
-        except Exception:
-          params = {}
-        code = params.get('code')
-        if not code and isinstance(params.get('codes'), list) and params.get('codes'):
-          code = params.get('codes')[0]
-        _queue_ctrl['state']['current_code'] = code or item.get('task_type')
-        # 根据类型构造任务，目前支持 download_daily
-        t = DownloadDailyTask(orm)
-        t.task_id = item.get('task_id')
-        t.task_type = item.get('task_type')
-        t.task_desc = item.get('task_desc')
-        t.params_str = item.get('task_params') or '{}'
-        t.priority = item.get('priority') or 0
-        ok = False
-        try:
-          ok = t.run(conn=conn)
-        except Exception:
-          ok = False
-        try:
-          orm.update_task_status(t.task_id, "成功" if ok else "失败")
-        except Exception:
-          pass
-        _queue_ctrl['state']['updated_count'] += 1
-        idx += 1
-        time.sleep(0.01)
-      try:
-        conn.close()
-      except Exception:
-        pass
-    finally:
-      _queue_ctrl['state']['running'] = False
-      _queue_ctrl['state']['stopped'] = _queue_ctrl['stop_event'].is_set()
-      _queue_ctrl['state']['ended_at'] = timezone.now()
-      _queue_ctrl['thread'] = None
-
-  t = threading.Thread(target=worker, daemon=True)
-  _queue_ctrl['thread'] = t
-  t.start()
-  return True
 
 class UpdateRunView(APIView):
+
+    
     def post(self, request):
         """触发一次数据更新（占位）：在后台线程执行采集脚本的run_once。"""
         import threading
@@ -428,31 +333,8 @@ class UpdateRunView(APIView):
 
 
 # 队列更新 API：从任务列表取任务执行
-class QueueUpdateStartView(APIView):
-    def post(self, request):
-        # 启动前检查 QuestDB
-        try:
-            import sys
-            project_root = Path(settings.BASE_DIR).parent
-            if str(project_root) not in sys.path:
-                sys.path.append(str(project_root))
-            from data_pipeline.collector import qdb_connect
-            test_conn = qdb_connect()
-            if not test_conn:
-                return Response({'started': False, 'error': 'QuestDB连接失败'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            try:
-                test_conn.close()
-            except Exception:
-                pass
-        except Exception as e:
-            return Response({'started': False, 'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        started = _start_queue_update_thread()
-        return Response({
-            'started': started,
-            'started_at': _queue_ctrl['state']['started_at'],
-            'total_codes': _queue_ctrl['state']['total_codes'],
-            'note': '后台执行 任务队列更新（仅消费待处理任务，可暂停/继续/停止）'
-        })
+# 从QueueUpdateTask导入队列更新视图
+from stocks.tasks.QueueUpdateTask import QueueUpdateStartView
 
 class UpdateStatusView(APIView):
     def get(self, request):
@@ -461,6 +343,11 @@ class UpdateStatusView(APIView):
         import psycopg2
         from psycopg2 import OperationalError
         from datetime import datetime
+        # 导入连接池
+        try:
+            from db.db_pool import get_conn, put_conn
+        except Exception:
+            get_conn, put_conn = None, None
 
         # QuestDB 连接参数
         host = os.getenv('QDB_HOST', 'localhost')
@@ -478,9 +365,21 @@ class UpdateStatusView(APIView):
         total_codes = 0
         updated_count = 0
         recent_updates = []
+        conn = None
 
         try:
-            conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            # 尝试使用连接池获取连接
+            if get_conn:
+                try:
+                    conn = get_conn()
+                except Exception as e:
+                    qdb_error = f'使用连接池失败: {str(e)}'
+                    # 连接池失败，尝试直接连接
+                    conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            else:
+                # 如果连接池不可用，直接创建连接
+                conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            
             conn.autocommit = True
             cur = conn.cursor()
             qdb_ok = True
@@ -502,12 +401,12 @@ class UpdateStatusView(APIView):
             # 最近更新（按最大交易日倒序，取前8）
             try:
                 cur.execute("""
-                  select d.code, b.name, max(d.trade_date) as last_date
-                  from stock_daily d
-                  left join stock_basic b on d.code=b.code
-                  group by d.code, b.name
-                  order by last_date desc
-                  limit 8
+                    select d.code, b.name, max(d.trade_date) as last_date
+                    from stock_daily d
+                    left join stock_basic b on d.code=b.code
+                    group by d.code, b.name
+                    order by last_date desc
+                    limit 8
                 """)
                 rows = cur.fetchall() or []
                 recent_updates = [
@@ -520,11 +419,20 @@ class UpdateStatusView(APIView):
                 ]
             except Exception:
                 pass
-            conn.close()
         except OperationalError as e:
             qdb_error = str(e)
         except Exception as e:
             qdb_error = str(e)
+        finally:
+            # 归还连接到连接池或关闭连接
+            if conn:
+                try:
+                    if put_conn:
+                        put_conn(conn)
+                    else:
+                        conn.close()
+                except Exception:
+                    pass
 
         # 控制器状态（正在运行时优先使用内存中的计数和进度）
         ctrl = _update_ctrl['state'].copy()
@@ -533,7 +441,7 @@ class UpdateStatusView(APIView):
             updated_count = ctrl.get('updated_count') or updated_count
 
         # 队列控制器状态
-        queue_ctrl = _queue_ctrl['state'].copy()
+        queue_ctrl = get_queue_ctrl()['state'].copy()
 
         return Response({
             'stock_basic_count': stock_basic_count,
@@ -606,21 +514,24 @@ class UpdateStopView(APIView):
 
 class QueueUpdatePauseView(APIView):
     def post(self, request):
-        if _queue_ctrl['state']['running'] and not _queue_ctrl['state']['paused']:
-            _queue_ctrl['state']['paused'] = True
-        return Response({'running': _queue_ctrl['state']['running'], 'paused': _queue_ctrl['state']['paused']})
+        queue_ctrl = get_queue_ctrl()
+        if queue_ctrl['state']['running'] and not queue_ctrl['state']['paused']:
+            queue_ctrl['state']['paused'] = True
+        return Response({'running': queue_ctrl['state']['running'], 'paused': queue_ctrl['state']['paused']})
 
 class QueueUpdateResumeView(APIView):
     def post(self, request):
-        if _queue_ctrl['state']['running'] and _queue_ctrl['state']['paused']:
-            _queue_ctrl['state']['paused'] = False
-        return Response({'running': _queue_ctrl['state']['running'], 'paused': _queue_ctrl['state']['paused']})
+        queue_ctrl = get_queue_ctrl()
+        if queue_ctrl['state']['running'] and queue_ctrl['state']['paused']:
+            queue_ctrl['state']['paused'] = False
+        return Response({'running': queue_ctrl['state']['running'], 'paused': queue_ctrl['state']['paused']})
 
 class QueueUpdateStopView(APIView):
     def post(self, request):
-        if _queue_ctrl['state']['running']:
-            _queue_ctrl['stop_event'].set()
-        return Response({'running': _queue_ctrl['state']['running'], 'stopped': _queue_ctrl['state']['stopped']})
+        queue_ctrl = get_queue_ctrl()
+        if queue_ctrl['state']['running']:
+            queue_ctrl['stop_event'].set()
+        return Response({'running': queue_ctrl['state']['running'], 'stopped': queue_ctrl['state']['stopped']})
 
 
 class QuotePlaceholderView(APIView):
@@ -643,6 +554,11 @@ class DataStatusView(APIView):
 
         import os
         import psycopg2
+        # 导入连接池
+        try:
+            from db.db_pool import get_conn, put_conn
+        except Exception:
+            get_conn, put_conn = None, None
 
         host = os.getenv('QDB_HOST', 'localhost')
         port = int(os.getenv('QDB_PORT', '8812'))
@@ -654,6 +570,7 @@ class DataStatusView(APIView):
         markets = []
         listing_range = {}
         trends = []
+        conn = None
 
         # 本地函数：根据market构造代码前缀过滤
         def market_prefixes(m):
@@ -678,7 +595,17 @@ class DataStatusView(APIView):
             return 'SZ'
 
         try:
-            conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            # 尝试使用连接池获取连接
+            if get_conn:
+                try:
+                    conn = get_conn()
+                except Exception:
+                    # 连接池失败，尝试直接连接
+                    conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            else:
+                # 如果连接池不可用，直接创建连接
+                conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            
             conn.autocommit = True
             cur = conn.cursor()
             # 基础股票筛选
@@ -729,9 +656,18 @@ class DataStatusView(APIView):
             except Exception:
                 listing_range = {'min': None, 'max': None}
 
-            conn.close()
         except Exception:
             pass
+        finally:
+            # 归还连接到连接池或关闭连接
+            if conn:
+                try:
+                    if put_conn:
+                        put_conn(conn)
+                    else:
+                        conn.close()
+                except Exception:
+                    pass
 
         return Response({
             'overview': overview,

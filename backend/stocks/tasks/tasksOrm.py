@@ -1,6 +1,11 @@
 from typing import Optional, List
 import threading
 import logging
+import sys
+import os
+
+# 添加项目路径以便导入连接池
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # 迁移自 qdb_orm.py：提供 QuestDB 任务表的轻量 ORM 适配器
 try:
@@ -12,6 +17,7 @@ except Exception:
 class QtasksOrm:
     """
     线程安全的 QuestDB ORM 适配器：提供任务表的常用操作，供 BaseTask 使用。
+    实现为单例模式，确保全局唯一实例，避免多线程创建多个实例导致资源浪费。
     增加了线程安全机制，避免多线程并发操作任务表时的数据不一致问题。
     提供：
       - insert_task(task_id, task_type, task_desc, task_params, priority, status)
@@ -26,10 +32,37 @@ class QtasksOrm:
       - complete_task(task_id, success)
     可复用外部连接或内部创建连接。
     """
-
-    def __init__(self, conn: Optional[object] = None) -> None:
+    # 单例模式实现
+    _instance = None
+    _instance_lock = threading.RLock()
+    
+    def __new__(cls, conn: Optional[object] = None) -> 'QtasksOrm':
+        # 使用双重检查锁定模式实现线程安全的单例
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    # 初始化连接和锁，只在第一次创建实例时执行
+                    cls._instance._initialize(conn)
+        # 注意：如果提供了外部连接，不更新现有实例的连接，以保持单例的一致性
+        return cls._instance
+    
+    def _initialize(self, conn: Optional[object] = None) -> None:
+        """
+        初始化实例变量，只在第一次创建实例时调用
+        """
         self._external_conn = conn
-        self._conn = conn or (qdb_connect() if qdb_connect else None)
+        if conn:
+            self._conn = conn
+        else:
+            # 尝试使用连接池获取连接
+            try:
+                from db.db_pool import get_conn
+                self._conn = get_conn()
+            except Exception as e:
+                logging.warning(f"连接池获取失败，回退到默认连接: {e}")
+                self._conn = qdb_connect() if qdb_connect else None
+        
         if not self._conn:
             raise RuntimeError("QuestDB 连接不可用")
         # 添加线程锁，保证关键操作的线程安全
@@ -37,18 +70,31 @@ class QtasksOrm:
         # 添加任务级别的锁字典，用于细粒度控制
         self._task_locks = {}
         self._task_locks_lock = threading.RLock()
+    
+    def __init__(self, conn: Optional[object] = None) -> None:
+        # 重写__init__避免重复初始化
+        pass
         
 
     def close(self) -> None:
         """
         关闭数据库连接并清理资源
+        
+        注意：由于是单例模式，调用close后实例仍然存在，但连接会被关闭。
+        再次使用该实例时需要重新初始化连接。
         """
         with self._lock:
-            if not self._external_conn and self._conn:
+            if not self._external_conn and hasattr(self, '_conn') and self._conn:
                 try:
-                    self._conn.close()
+                    # 尝试使用连接池归还连接
+                    from db.db_pool import put_conn
+                    put_conn(self._conn)
                 except Exception:
-                    pass
+                    # 回退到直接关闭连接
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
                 self._conn = None
             
             # 清理任务锁资源
@@ -131,15 +177,25 @@ class QtasksOrm:
             return None
 
     def get_task(self, task_id: str):
-        cur = self._conn.cursor()
-        cur.execute(
-            "select task_id, task_type, task_desc, task_params, priority, status from tasks where task_id=%s limit 1",
-            (task_id,),
-        )
-        row = cur.fetchone()
-        return self._row_to_dict(cur, row) if row else None
+        with self._lock:
+            if not hasattr(self, '_conn') or  self._conn.closed:
+                # 连接已关闭，重新初始化
+                self._initialize()
+                
+            cur = self._conn.cursor()
+            cur.execute(
+                "select task_id, task_type, task_desc, task_params, priority, status from tasks where task_id=%s limit 1",
+                (task_id,),
+            )
+            row = cur.fetchone()
+            return self._row_to_dict(cur, row) if row else None
 
     def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, limit: int = 100, offset: int = 0):
+        
+        if self._conn.closed or not hasattr(self, '_conn') or not self._conn:
+            # 连接已关闭，重新初始化
+            self._initialize()
+                
         cur = self._conn.cursor()
         where = []
         params: List[object] = []
@@ -172,6 +228,11 @@ class QtasksOrm:
         if not any([task_desc is not None, task_params is not None, priority is not None, status is not None]):
             return
             
+        with self._lock:
+            if not hasattr(self, '_conn') or not self._conn.closed:
+                # 连接已关闭，重新初始化
+                self._initialize()
+                
         with self._get_task_lock(task_id):
             sets = []
             params: List[object] = []
@@ -216,6 +277,11 @@ class QtasksOrm:
         """
         线程安全的任务删除方法
         """
+        with self._lock:
+            if not hasattr(self, '_conn') or self._conn.closed:
+                # 连接已关闭，重新初始化
+                self._initialize()
+                
         with self._get_task_lock(task_id):
             cur = self._conn.cursor()
             try:
@@ -227,10 +293,11 @@ class QtasksOrm:
                     pass
                 
                 # 删除任务后清理对应的任务锁
-                with self._task_locks_lock:
-                    if task_id in self._task_locks:
-                        del self._task_locks[task_id]
-                        
+                if hasattr(self, '_task_locks_lock') and hasattr(self, '_task_locks'):
+                    with self._task_locks_lock:
+                        if task_id in self._task_locks:
+                            del self._task_locks[task_id]
+                            
             except Exception as e:
                 try:
                     self._conn.rollback()
@@ -250,6 +317,10 @@ class QtasksOrm:
         使用全局锁避免多个线程同时获取同一个任务
         """
         with self._lock:
+            if not hasattr(self, '_conn') or not self._conn.closed:
+                # 连接已关闭，重新初始化
+                self._initialize()
+                
             cur = self._conn.cursor()
             where = ["status=%s"]
             params: List[object] = ["待处理"]
@@ -266,6 +337,12 @@ class QtasksOrm:
 
     def _get_task_lock(self, task_id: str) -> threading.RLock:
         """获取特定任务ID的锁，用于细粒度的任务级并发控制"""
+        # 确保锁字典和锁对象存在
+        if not hasattr(self, '_task_locks'):
+            self._task_locks = {}
+        if not hasattr(self, '_task_locks_lock'):
+            self._task_locks_lock = threading.RLock()
+            
         with self._task_locks_lock:
             if task_id not in self._task_locks:
                 self._task_locks[task_id] = threading.RLock()
@@ -275,6 +352,11 @@ class QtasksOrm:
         """
         线程安全的任务认领方法，使用任务级锁和数据库事务确保并发安全
         """
+        with self._lock:
+            if not hasattr(self, '_conn') or self._conn.closed:
+                # 连接已关闭，重新初始化
+                self._initialize()
+                
         # 使用任务级别的锁，避免同一任务被多个线程同时认领
         with self._get_task_lock(task_id):
             try:
@@ -334,6 +416,11 @@ class QtasksOrm:
         """
         线程安全的任务完成方法
         """
+        with self._lock:
+            if not hasattr(self, '_conn') or self._conn.closed:
+                # 连接已关闭，重新初始化
+                self._initialize()
+                
         with self._get_task_lock(task_id):
             # 完成时同时写入结束时间
             self.update_task_status(task_id, "成功" if success else "失败")

@@ -38,10 +38,27 @@ class DailyDataView(APIView):
         except Exception:
             return Response({'error': 'start_date 或 end_date 格式错误，应为 YYYYMMDD'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 添加项目路径以便导入db模块
+        import sys
+        import os
+        project_root = os.path.join(os.path.dirname(__file__), '..', '..', '..')
+        if project_root not in sys.path:
+            sys.path.append(project_root)
+        
+        # 导入连接池
         try:
-            from .db_pool import get_conn, put_conn
+            from backend.db.db_pool import get_conn, put_conn
+        except Exception:
+            # 如果导入失败，设置为None
+            get_conn, put_conn = None, None
+        
+        # 获取连接配置
+
+        try:
+            # 尝试使用连接池获取连接
             conn = get_conn()
-        except RuntimeError as e:
+            conn.autocommit = True
+        except OperationalError as e:
             return Response({'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
             return Response({'error': f'连接异常: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -91,14 +108,22 @@ class DailyDataView(APIView):
                      r[7],
                 ])
         except Exception as e:
+            # 确保关闭连接
             try:
-                put_conn(conn)
+                if put_conn:
+                    put_conn(conn)
+                else:
+                    conn.close()
             except Exception:
                 pass
             return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        # 归还连接到连接池或关闭连接
         try:
-            put_conn(conn)
+            if put_conn:
+                put_conn(conn)
+            else:
+                conn.close()
         except Exception:
             pass
 

@@ -1,11 +1,24 @@
 import time
 from datetime import datetime
+import sys
+import os
+import logging
+
+# 添加项目路径到sys.path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'backend'))
+
+# 导入数据库连接池工具
+try:
+    from db.import_utils import get_db_pool_functions
+except ImportError:
+    # 如果导入失败，定义fallback函数
+    def get_db_pool_functions():
+        return None, None
 
 try:
     import akshare as ak
 except Exception:
     ak = None
-import os
 # 新增：QuestDB PG 连接
 try:
     import psycopg2
@@ -24,6 +37,21 @@ def qdb_connect():
     password = os.getenv('QDB_PASS', 'quest')
     dbname = os.getenv('QDB_DB', 'qdb')
     try:
+        # 尝试使用连接池获取连接
+        get_conn, put_conn = get_db_pool_functions()
+        if get_conn:
+            try:
+                conn = get_conn(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    dbname=dbname
+                )
+                return conn
+            except Exception as e:
+                logging.warning(f"使用连接池失败，回退到直接连接: {e}")
+        # 如果连接池不可用，直接创建连接
         conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
         conn.autocommit = True
         return conn
@@ -115,11 +143,19 @@ def qdb_ensure_tables(conn=None):
             pass
         return True
     except Exception:
-        try:
-            conn.close()
-        except Exception:
-            pass
-        return False
+            # 使用连接池归还连接而不是直接关闭
+            try:
+                put_conn, _ = get_db_pool_functions()
+                if put_conn:
+                    put_conn(conn)
+                else:
+                    conn.close()
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return False
 
 
 def qdb_insert_basic(rows, conn=None):
@@ -159,10 +195,19 @@ def qdb_insert_basic(rows, conn=None):
         return len(values)
     except Exception:
         try:
+            # 使用连接池归还连接
+            put_conn, _ = get_db_pool_functions()
             if conn is None:
-                conn_local.close()
+                if put_conn:
+                    put_conn(conn_local)
+                else:
+                    conn_local.close()
         except Exception:
-            pass
+            try:
+                if conn is None:
+                    conn_local.close()
+            except Exception:
+                pass
         return 0
 
 
@@ -385,13 +430,26 @@ def qdb_get_market(code: str):
         cur = conn.cursor()
         cur.execute('select market from stock_basic where code=$1 limit 1', (code,))
         row = cur.fetchone()
-        conn.close()
+        # 使用连接池归还连接而不是直接关闭
+        put_conn, _ = get_db_pool_functions()
+        if put_conn:
+            put_conn(conn)
+        else:
+            conn.close()
         return row[0] if row else None
     except Exception:
         try:
-            conn.close()
+            # 使用连接池归还连接而不是直接关闭
+            put_conn, _ = get_db_pool_functions()
+            if put_conn:
+                put_conn(conn)
+            else:
+                conn.close()
         except Exception:
-            pass
+            try:
+                conn.close()
+            except Exception:
+                pass
         return None
 
 

@@ -13,6 +13,8 @@ class ScheduleConfigView(APIView):
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
             from data_pipeline.collector import qdb_connect
+            # 导入连接池函数
+            from db.db_pool import put_conn
         except Exception as e:
             return Response({'error': f'导入连接模块失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         try:
@@ -23,15 +25,21 @@ class ScheduleConfigView(APIView):
             cols = [d[0] for d in cur.description] if cur.description else ['id','name','task_desc','params','schedule_time','enabled']
             items = [{cols[i]: r[i] for i in range(len(cols))} for r in rows]
             try:
-                conn.close()
+                put_conn(conn)
             except Exception:
-                pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             return Response({'items': items})
         except Exception as e:
             try:
-                conn.close()
+                put_conn(conn)
             except Exception:
-                pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def put(self, request):
@@ -83,15 +91,21 @@ class ScheduleConfigView(APIView):
                 cur.execute(sql, (_id, name, task_desc, params, schedule_time, enabled))
             conn.commit()
             try:
-                conn.close()
+                put_conn(conn)
             except Exception:
-                pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             return Response({'saved': True, 'count': len(items)})
         except Exception as e:
             try:
-                conn.close()
+                put_conn(conn)
             except Exception:
-                pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             return Response({'error': f'保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
