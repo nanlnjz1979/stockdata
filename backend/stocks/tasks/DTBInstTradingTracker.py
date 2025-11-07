@@ -10,11 +10,8 @@ try:
 except Exception:
     ak = None
 
-# QuestDB 连接（沿用 data_pipeline.collector 的连接方式）
-try:
-    from data_pipeline.collector import qdb_connect
-except Exception:
-    qdb_connect = None
+# QuestDB 连接池
+from db.db_pool import get_conn, put_conn
 
 logger = logging.getLogger(__name__)
 
@@ -28,21 +25,16 @@ def _num(x) -> Optional[float]:
 def _aggregate_lhb(day: str) -> List[Tuple[str, str, float, float, float, float, float]]:
     """
     返回列表项为 (code, name, buy_amount, buy_times, sell_amount, sell_times, net_amount)
-    金额单位按“万”处理（多数 Akshare 接口已是万元）。
+    金额单位按"万"处理（多数 Akshare 接口已是万元）。
     """
-    # 规范代码列表
-    codes = [c.strip() for c in codes if isinstance(c, str) and c.strip()]
-    if not codes:
-        return []
-
     try:
         df = ak.stock_lhb_jgzz_sina(day)
         if df is None or df.empty:
-            logger.warning("ak.stock_lhb_jgzz_sina(%s) 返回空数据", query_type)
-            return False
+            logger.warning("ak.stock_lhb_jgzz_sina(%s) 返回空数据", day)
+            return []
     except Exception as e:
         logger.exception("获取龙虎榜数据失败: %s", e)
-        return False
+        return []
     # 按 DataFrame 列名聚合
     accum: Dict[str, Dict[str, float]] = {}
     for _, row in df.iterrows():
@@ -83,7 +75,7 @@ def _aggregate_lhb(day: str) -> List[Tuple[str, str, float, float, float, float,
 def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, float]], day: int, conn=None) -> int:
     if not rows:
         return 0
-    conn_local = conn or (qdb_connect() if qdb_connect else None)
+    conn_local = conn or get_conn()
     if not conn_local:
         return 0
     try:
@@ -99,7 +91,7 @@ def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, 
                 _num(sell_amt),
                 _num(sell_times),
                 _num(net_amt),
-                int(query_type),
+                day,
             )
             for (cd, name, buy_amt, buy_times, sell_amt, sell_times, net_amt) in rows
         ]
@@ -116,20 +108,21 @@ def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, 
             logger.exception("批量写入失败: %s", e)
             if conn is None:
                 try:
-                    conn_local.close()
+                    put_conn(conn_local)
                 except Exception:
                     pass
             return 0
         if conn is None:
             try:
-                conn_local.close()
+                put_conn(conn_local)
             except Exception:
                 pass
         return len(values)
-    except Exception:
+    except Exception as e:
+        logger.exception("写入数据异常: %s", e)
         try:
-            if conn is None:
-                conn_local.close()
+            if conn is None and conn_local:
+                put_conn(conn_local)
         except Exception:
             pass
         return 0
@@ -171,7 +164,7 @@ class DTBInstTradingTrackerTask(BaseTask):
         """
         conn = None
         try:
-            conn = qdb_connect() if qdb_connect else None
+            conn = get_conn()
             if not conn:
                 logger.warning("QuestDB 连接失败，无法获取最后更新日期")
                 return None
@@ -188,7 +181,7 @@ class DTBInstTradingTrackerTask(BaseTask):
         finally:
             if conn:
                 try:
-                    conn.close()
+                    put_conn(conn)
                 except Exception:
                     pass
         
@@ -199,33 +192,59 @@ class DTBInstTradingTrackerTask(BaseTask):
             return json.loads(self.params_str or "{}")
         except Exception:
             return {}
-    def taskID(self) -> str:
+    @classmethod
+    def taskID(cls) -> str:
         return "LHB_InstituteTrack"
 
     def run(self, conn=None) -> bool:
         # 读取任务参数
         if conn is None:
-            conn = qdb_connect()
-        from tasksOrm import QtasksOrm
-        orm = QtasksOrm(conn)
-        cfgs = orm.list_tasks(self.taskID()) # task_id, task_type, task_desc, task_params, priority, status
-
-        for item in cfgs:
-            task_params = item.get("task_params", "{}")
+            conn = get_conn()
+        try:
+            from stocks.tasks import QtasksOrm
+            
+                    
+            #task_params 
+            # 处理task_params可能是字符串的情况
+            import json
+            if isinstance(self.params_str, str):
+                try:
+                    task_params = json.loads(self.params_str)
+                except Exception:
+                    task_params = {}
             last_update_date = task_params.get("last_update_date", None)
             # 仅当 last_update_date 早于今天时才继续拉取数据
-
-            if last_update_date and last_update_date <= datetime.now().date():
-                continue
+            today = datetime.now().date()
+            if isinstance(last_update_date, str):
+                try:
+                    last_update_date = datetime.strptime(last_update_date, "%Y-%m-%d").date()
+                except Exception:
+                    last_update_date = None
+            
+            if last_update_date and last_update_date >= today:
+                return True
+            
             # 拉取龙虎榜数据
             for day in ["5", "10", "30", "60"]:
-                
                 aggregated = _aggregate_lhb(day)
-
                 if not aggregated:
-                    logger.info("在 %s未找到指定天数 %s 的龙虎榜数据", last_update_date, day)
+                    logger.info("未找到指定天数 %s 的龙虎榜数据", day)
+                    continue
+                
+                # 写入 QuestDB
+                inserted = _insert_inst_trading(aggregated, int(day), conn=conn)
+                logger.info("成功写入 %s 条机构龙虎榜聚合记录 (day=%s)", inserted, day)
+                
+            return True
 
-            # 写入 QuestDB
-            inserted = _insert_inst_trading(aggregated, int(day), conn=conn)
-            logger.info("成功写入 %s 条机构龙虎榜聚合记录", inserted)
-            return inserted > 0
+        except Exception as e:
+            logger.exception("运行任务异常: %s", e)
+            return False
+        finally:
+            if conn is None:
+                try:
+                    put_conn(conn)
+                except Exception:
+                    pass
+
+                

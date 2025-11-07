@@ -112,7 +112,9 @@ class IncrementalUpdateTask(BaseTask):
             return json.loads(self.params_str or '{}')
         except Exception:
             return {}
-    def taskID(self) -> str:
+
+    @classmethod
+    def taskID(cls) -> str:
         return f"STOCK_Update"
     def run(self, conn=None) -> bool:
         # 检查依赖

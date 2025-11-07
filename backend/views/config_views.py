@@ -12,35 +12,29 @@ class ScheduleConfigView(APIView):
             project_root = Path(settings.BASE_DIR).parent
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
-            from data_pipeline.collector import qdb_connect
             # 导入连接池函数
-            from db.db_pool import put_conn
+            from db.db_pool import get_conn, put_conn
         except Exception as e:
             return Response({'error': f'导入连接模块失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         try:
-            conn = qdb_connect()
+            conn = get_conn()
             cur = conn.cursor()
             cur.execute("SELECT id, name, task_desc, params, schedule_time, enabled FROM schedule_configs ORDER BY id")
             rows = cur.fetchall() or []
             cols = [d[0] for d in cur.description] if cur.description else ['id','name','task_desc','params','schedule_time','enabled']
             items = [{cols[i]: r[i] for i in range(len(cols))} for r in rows]
-            try:
-                put_conn(conn)
-            except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
             return Response({'items': items})
         except Exception as e:
-            try:
-                put_conn(conn)
-            except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
             return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            if 'conn' in locals():
+                try:
+                    put_conn(conn)
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
     def put(self, request):
         """覆盖保存所有配置项。支持传入 {items: [...]} 或 {configs: {id: {...}}}。"""
@@ -52,8 +46,8 @@ class ScheduleConfigView(APIView):
             project_root = Path(settings.BASE_DIR).parent
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
-            from data_pipeline.collector import qdb_connect
-            from global_config.config import GlobalConfig
+            from db.db_pool import get_conn, put_conn
+            from backend.global_config import GlobalConfig
         except Exception as e:
             return Response({'error': f'导入模块失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -68,8 +62,9 @@ class ScheduleConfigView(APIView):
             return Response({'error': '请求体需包含 items 列表或 configs 字典'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 归一化并保存
+        conn = None
         try:
-            conn = qdb_connect()
+            conn = get_conn()
             cur = conn.cursor()
             cur.execute("TRUNCATE TABLE schedule_configs")
             for it in items:
@@ -90,23 +85,23 @@ class ScheduleConfigView(APIView):
                 )
                 cur.execute(sql, (_id, name, task_desc, params, schedule_time, enabled))
             conn.commit()
-            try:
-                put_conn(conn)
-            except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
             return Response({'saved': True, 'count': len(items)})
         except Exception as e:
-            try:
-                put_conn(conn)
-            except Exception:
+            if conn:
                 try:
-                    conn.close()
+                    conn.rollback()
                 except Exception:
                     pass
             return Response({'error': f'保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            if conn:
+                try:
+                    put_conn(conn)
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
 
 class ScheduleApplyView(APIView):

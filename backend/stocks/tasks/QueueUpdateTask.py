@@ -54,15 +54,22 @@ def _start_queue_update_thread():
         'ended_at': None,
     })
 
+    from stocks.tasks import DTBInstTradingTrackerTask,DownloadDailyTask, QtasksOrm
+    
+
     def worker():
         try:
 
-            from stocks.tasks import DownloadDailyTask, QtasksOrm
+            
+
+            
             # 从连接池获取连接
             conn = get_conn()
             orm = QtasksOrm(conn)
+
             # 预估待处理总数
-            pending = orm.list_tasks(status="待处理", limit=100000)
+            test_task_type = DTBInstTradingTrackerTask.taskID()
+            pending = orm.list_tasks(status="待处理", task_type = test_task_type ,limit=100000)
             _queue_ctrl['state']['total_codes'] = len(pending)
             # 按优先级逐个处理
             idx = 0
@@ -73,15 +80,20 @@ def _start_queue_update_thread():
                     time.sleep(0.2)
                 if _queue_ctrl['stop_event'].is_set():
                     break
+
                 # 取下一个待处理任务
-                item = orm.next_pending_task()
+                item = orm.next_pending_task(task_type = test_task_type) 
+                #item = orm.next_pending_task()
                 if not item:
                     break
                 tid = item.get('task_id')
+                taskType = item.get('task_type')
+                
                 try:
-                    claimed = orm.claim_task(tid)
+                    claimed = orm.claim_task(tid)#变成"处理中"
                 except Exception:
                     claimed = True
+
                 if not claimed:
                     # 未成功认领，稍后重试
                     time.sleep(0.2)
@@ -92,12 +104,18 @@ def _start_queue_update_thread():
                     params = json.loads(item.get('task_params') or '{}')
                 except Exception:
                     params = {}
+
                 code = params.get('code')
                 if not code and isinstance(params.get('codes'), list) and params.get('codes'):
                     code = params.get('codes')[0]
                 _queue_ctrl['state']['current_code'] = code or item.get('task_type')
-                # 根据类型构造任务，目前支持 download_daily
-                t = DownloadDailyTask(orm)
+                # 根据类型构造任务，目前支持 download_daily 和 DTBInstTradingTrackerTask
+                if taskType == DownloadDailyTask.taskID():  #下载全部的数据
+                    t = DownloadDailyTask( orm )
+                elif taskType == DTBInstTradingTrackerTask.taskID():
+                    t = DTBInstTradingTrackerTask( orm )
+                else:
+                    continue
                 t.task_id = item.get('task_id')
                 t.task_type = item.get('task_type')
                 t.task_desc = item.get('task_desc')

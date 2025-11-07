@@ -5,9 +5,9 @@ from django.db import connection
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'stockserver.settings')
 django.setup()
 
-from stocks.models import StockBasic, StockFinance, UserFollow, StockDaily, StockUpdateStatus
+from stocks.models import StockBasic, StockFinance, StockDaily, StockUpdateStatus
 
-models = [StockBasic, StockFinance, UserFollow, StockDaily, StockUpdateStatus]
+models = [StockBasic, StockFinance, StockDaily, StockUpdateStatus]
 
 existing = set(connection.introspection.table_names())
 created = []

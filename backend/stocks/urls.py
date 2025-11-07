@@ -1,19 +1,20 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from views.views import StockBasicViewSet, StockFinanceViewSet, UserFollowViewSet, QuotePlaceholderView, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
+from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
 from views.taskview import TaskMonitorView, QTaskListView, ScheduleListView, RecentTasksView
 from .data.daily import DailyDataView
 from .data.basic import StocksSHView, StocksSZView, StocksBJView
+from .data.dragon_tiger import DragonTigerView
 from views.config_views import ScheduleConfigView, ScheduleApplyView
 
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
 router.register(r'stocks/finance', StockFinanceViewSet, basename='stocks-finance')
-router.register(r'user/follow', UserFollowViewSet, basename='user-follow')
+# UserFollow路由已移除
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('stocks/quotes', QuotePlaceholderView.as_view()),
+    # 实时行情API已移除
     path('stocks/status', DataStatusView.as_view()),
     path('stocks/update/status', UpdateStatusView.as_view()),
     path('stocks/update/run', UpdateRunView.as_view()),
@@ -40,4 +41,7 @@ urlpatterns = [
     path('stocks/data/basic/sh', StocksSHView.as_view()),# 上证基础数据
     path('stocks/data/basic/sz', StocksSZView.as_view()),# 深证基础数据
     path('stocks/data/basic/bj', StocksBJView.as_view()),# 北京基础数据
+    # 龙虎榜数据相关API
+    path('stocks/data/dragon_tiger', DragonTigerView.as_view()),# 龙虎榜列表数据
+    # 龙虎榜详细数据API已移除
 ]

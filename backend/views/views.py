@@ -10,8 +10,8 @@ from rest_framework import status
 import os
 from pathlib import Path
 
-from stocks.models import StockBasic, StockFinance, UserFollow
-from stocks.serializers import StockBasicSerializer, StockFinanceSerializer, UserFollowSerializer
+from stocks.models import StockBasic, StockFinance
+from stocks.serializers import StockBasicSerializer, StockFinanceSerializer
 
 
 class StockBasicViewSet(viewsets.ModelViewSet):
@@ -36,25 +36,6 @@ class StockFinanceViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'code required'}, status=status.HTTP_400_BAD_REQUEST)
         qs = StockFinance.objects.filter(stock__stock_code=code).order_by('-report_date')
         return Response(StockFinanceSerializer(qs, many=True).data)
-
-
-class UserFollowViewSet(viewsets.ModelViewSet):
-    queryset = UserFollow.objects.all()
-    serializer_class = UserFollowSerializer
-
-    @action(detail=False, methods=['post'])
-    def add(self, request):
-        user_id = request.data.get('user_id')
-        code = request.data.get('stock_code')
-        stock = get_object_or_404(StockBasic, pk=code)
-        obj, _ = UserFollow.objects.get_or_create(user_id=user_id, stock=stock)
-        return Response(UserFollowSerializer(obj).data)
-
-    @action(detail=False, methods=['get'])
-    def list_by_user(self, request):
-        user_id = request.query_params.get('user_id')
-        qs = UserFollow.objects.filter(user_id=user_id)
-        return Response(UserFollowSerializer(qs, many=True).data)
 
 
 # 占位：按时间范围查询历史K线（后续接入TimescaleDB）
@@ -217,8 +198,9 @@ def _start_full_update_thread():
             project_root = Path(settings.BASE_DIR).parent
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
-            from data_pipeline.collector import qdb_connect,    populate_stock_basic_if_empty, qdb_get_all_basic, sync_basic_to_django
-            conn = qdb_connect()
+            from db.db_pool import get_conn, put_conn
+            from data_pipeline.collector import populate_stock_basic_if_empty, qdb_get_all_basic, sync_basic_to_django
+            conn = get_conn()
             
             if not conn:
                 _update_ctrl['state']['error'] = 'QuestDB连接失败'
@@ -288,7 +270,8 @@ def _start_full_update_thread():
                 _update_ctrl['state']['updated_count'] += 1
                 time.sleep(0.01)
             try:
-                conn.close()
+                if conn:
+                    put_conn(conn)
             except Exception:
                 pass
         finally:
@@ -337,17 +320,15 @@ class UpdateRunView(APIView):
 from stocks.tasks.QueueUpdateTask import QueueUpdateStartView
 
 class UpdateStatusView(APIView):
+    # 静态数据库连接
+    _static_conn = None
+    
     def get(self, request):
         """返回数据更新相关状态（QuestDB），不依赖SQLite。"""
         import os
         import psycopg2
         from psycopg2 import OperationalError
         from datetime import datetime
-        # 导入连接池
-        try:
-            from db.db_pool import get_conn, put_conn
-        except Exception:
-            get_conn, put_conn = None, None
 
         # QuestDB 连接参数
         host = os.getenv('QDB_HOST', 'localhost')
@@ -361,26 +342,25 @@ class UpdateStatusView(APIView):
         stock_basic_count = 0
         finance_count = 0
         latest_finance_date = None
-        latest_follow_time = None
         total_codes = 0
         updated_count = 0
         recent_updates = []
         conn = None
 
         try:
-            # 尝试使用连接池获取连接
-            if get_conn:
-                try:
-                    conn = get_conn()
-                except Exception as e:
-                    qdb_error = f'使用连接池失败: {str(e)}'
-                    # 连接池失败，尝试直接连接
-                    conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
-            else:
-                # 如果连接池不可用，直接创建连接
-                conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
+            # 初始化或获取静态连接
+            if UpdateStatusView._static_conn is None or UpdateStatusView._static_conn.closed:
+                UpdateStatusView._static_conn = psycopg2.connect(
+                    host=host, 
+                    port=port, 
+                    user=user, 
+                    password=password, 
+                    dbname=dbname, 
+                    connect_timeout=2
+                )
+                UpdateStatusView._static_conn.autocommit = True
             
-            conn.autocommit = True
+            conn = UpdateStatusView._static_conn
             cur = conn.cursor()
             qdb_ok = True
             # 统计基础股票数量
@@ -423,16 +403,6 @@ class UpdateStatusView(APIView):
             qdb_error = str(e)
         except Exception as e:
             qdb_error = str(e)
-        finally:
-            # 归还连接到连接池或关闭连接
-            if conn:
-                try:
-                    if put_conn:
-                        put_conn(conn)
-                    else:
-                        conn.close()
-                except Exception:
-                    pass
 
         # 控制器状态（正在运行时优先使用内存中的计数和进度）
         ctrl = _update_ctrl['state'].copy()
@@ -447,7 +417,6 @@ class UpdateStatusView(APIView):
             'stock_basic_count': stock_basic_count,
             'finance_count': finance_count,
             'latest_finance_date': latest_finance_date,
-            'latest_follow_time': latest_follow_time,
             'total_codes': total_codes,
             'updated_count': updated_count,
             'recent_updates': recent_updates,
@@ -467,21 +436,7 @@ class UpdateFullView(APIView):
     def post(self, request):
         """触发全量更新：可暂停/继续/停止。若QuestDB连接失败，返回错误。"""
         # 在启动线程前快速检查QuestDB连接，失败则直接返回错误
-        try:
-            import sys
-            project_root = Path(settings.BASE_DIR).parent
-            if str(project_root) not in sys.path:
-                sys.path.append(str(project_root))
-            from data_pipeline.collector import qdb_connect
-            test_conn = qdb_connect()
-            if not test_conn:
-                return Response({'started': False, 'error': 'QuestDB连接失败'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            try:
-                test_conn.close()
-            except Exception:
-                pass
-        except Exception as e:
-            return Response({'started': False, 'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        
 
         started = _start_full_update_thread()
         return Response({
@@ -534,23 +489,12 @@ class QueueUpdateStopView(APIView):
         return Response({'running': queue_ctrl['state']['running'], 'stopped': queue_ctrl['state']['stopped']})
 
 
-class QuotePlaceholderView(APIView):
-    def get(self, request):
-        code = request.query_params.get('code', 'TEST')
-        return Response({
-            'code': code,
-            'quotes': [
-                {'timestamp': '2024-01-01 09:30', 'open_price': 10.0, 'close_price': 10.5, 'high_price': 10.6, 'low_price': 9.9, 'volume': 1000},
-                {'timestamp': '2024-01-01 09:31', 'open_price': 10.5, 'close_price': 10.4, 'high_price': 10.7, 'low_price': 10.3, 'volume': 800},
-            ]
-        })
+# QuotePlaceholderView已移除，实时行情功能已取消
 
 class DataStatusView(APIView):
     def get(self, request):
         # 读取筛选参数
         market = request.query_params.get('market')
-        finance_start = request.query_params.get('finance_start')
-        finance_end = request.query_params.get('finance_end')
 
         import os
         import psycopg2
@@ -566,9 +510,6 @@ class DataStatusView(APIView):
         password = os.getenv('QDB_PASS', 'quest')
         dbname = os.getenv('QDB_DB', 'qdb')
 
-        overview = {}
-        markets = []
-        listing_range = {}
         trends = []
         conn = None
 
@@ -622,39 +563,9 @@ class DataStatusView(APIView):
                     where.append('(' + ' or '.join(ors) + ')')
             where_sql = (' where ' + ' and '.join(where)) if where else ''
 
-            # 总览
-            try:
-                cur.execute('select count(*) from stock_basic' + where_sql, tuple(params))
-                stock_basic_count = int((cur.fetchone() or [0])[0])
-            except Exception:
-                stock_basic_count = 0
-            overview = {
-                'stock_basic_count': stock_basic_count,
-                'finance_count': 0,
-                'follow_count': 0,
-                'latest_finance_date': None,
-            }
+            # 总览和市场分布功能已移除
 
-            # 市场分布（通过code推断，不再使用industry或market列）
-            try:
-                cur.execute('select code from stock_basic' + where_sql, tuple(params))
-                rows = cur.fetchall() or []
-                cnts = {'SH': 0, 'SZ': 0, 'BJ': 0}
-                for r in rows:
-                    mkt = infer_market(r[0])
-                    if mkt in cnts:
-                        cnts[mkt] += 1
-                markets = [{'market': k, 'count': v} for k, v in cnts.items() if v > 0]
-            except Exception:
-                markets = []
-
-            # 上市日期范围（基于过滤条件）
-            try:
-                cur.execute('select min(listing_date), max(listing_date) from stock_basic' + where_sql, tuple(params))
-                r = cur.fetchone() or [None, None]
-                listing_range = {'min': r[0], 'max': r[1]}
-            except Exception:
-                listing_range = {'min': None, 'max': None}
+            # 上市日期范围功能已移除
 
         except Exception:
             pass
@@ -670,9 +581,6 @@ class DataStatusView(APIView):
                     pass
 
         return Response({
-            'overview': overview,
-            'markets': markets,
-            'listing_range': listing_range,
             'backup': {
                 'db_path': 'QuestDB',
                 'size_bytes': None,

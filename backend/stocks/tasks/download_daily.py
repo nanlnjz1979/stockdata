@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
-
+from backend.global_config import norm_date
 from .base import BaseTask
 
 def _num(x):
@@ -98,6 +98,7 @@ logger = logging.getLogger(__name__)
 
 class DownloadDailyTask(BaseTask):
     """
+    下载所有股票日期的数据，一般是第一次运行时使用。
     从 BaseTask 派生的任务：下载并写入股票日线数据到 QuestDB。
     params 支持：
       - code: 单个股票代码（字符串）
@@ -125,30 +126,24 @@ class DownloadDailyTask(BaseTask):
             return json.loads(self.params_str or '{}')
         except Exception:
             return {}
-
-    def run(self, conn=None) -> bool:
+    @classmethod
+    def taskID(cls) -> str:
+        return "download_daily"
+    def run(self, conn=None,params_str: str = None) -> bool:
         # 检查依赖
         if not (ak):
             logger.error("依赖不可用：akshare 未导入")
             return False
+        if params_str:
+            self.params_str = params_str
+            
         params = self._parse_params()
         market = (params.get('market') or '').upper()
+        
+        
         adjust = (params.get('adjust') or '').lower()
-        # 归一化日期
-        def _norm_date(d):
-            if not d:
-                return None
-            if isinstance(d, datetime):
-                return d.strftime("%Y%m%d")
-            s = str(d)
-            try:
-                if '-' in s:
-                    s = s.replace('-', '')
-                return s
-            except Exception:
-                return None
-        start_date = _norm_date(params.get('start_date')) or '19900101'
-        end_date = _norm_date(params.get('end_date')) or datetime.now().strftime('%Y%m%d')
+        start_date = norm_date(params.get('start_date')) or '19900101'
+        end_date = norm_date(params.get('end_date')) or datetime.now().strftime('%Y%m%d')
 
         # 收集目标代码列表
         codes: List[str] = []
@@ -195,20 +190,9 @@ class DownloadDailyTask(BaseTask):
                     try:
                         saved = _insert_daily(code, df, adj, conn=conn_local)
                         total_saved += int(saved or 0)
-                        if df is not None and not df.empty:
-                            df2 = df.rename(columns={'日期': 'date'})
-                            for _, r in df2.iterrows():
-                                d = r.get('date')
-                                if not d:
-                                    continue
-                                try:
-                                    td = d if isinstance(d, datetime) else datetime.strptime(str(d), '%Y-%m-%d')
-                                    latest_date = max(latest_date or td, td)
-                                except Exception:
-                                    pass
                     except Exception as e:
                         logger.exception("写入失败: code=%s, adj=%s, error=%s", code, adj, e)
-            logger.info("任务完成：codes=%s, total_saved=%s, latest_date=%s", codes, total_saved, latest_date.date() if latest_date else None)
+            logger.info("任务完成：codes=%s, total_saved=%s", codes, total_saved)
             return total_saved > 0
         finally:
             if conn is None:

@@ -22,15 +22,7 @@ class StockFinance(models.Model):
     pb = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
 
 
-class UserFollow(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    stock = models.ForeignKey(StockBasic, on_delete=models.CASCADE)
-    follow_time = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('user', 'stock')
-
-
+# UserFollow模型已移除
 class StockDaily(models.Model):
     stock = models.ForeignKey(StockBasic, on_delete=models.CASCADE)
     trade_date = models.DateField()

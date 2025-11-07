@@ -50,18 +50,36 @@ class QtasksOrm:
     def _initialize(self, conn: Optional[object] = None) -> None:
         """
         初始化实例变量，只在第一次创建实例时调用
+        使用专门的数据连接，不用数据库连接池
         """
         self._external_conn = conn
         if conn:
             self._conn = conn
         else:
-            # 尝试使用连接池获取连接
-            try:
-                from db.db_pool import get_conn
-                self._conn = get_conn()
-            except Exception as e:
-                logging.warning(f"连接池获取失败，回退到默认连接: {e}")
-                self._conn = qdb_connect() if qdb_connect else None
+            # 直接使用专门的数据连接，不通过连接池
+            if qdb_connect:
+                self._conn = qdb_connect()
+            else:
+                # 如果qdb_connect不可用，尝试直接导入psycopg2创建连接
+                try:
+                    import psycopg2
+                    import os
+                    host = os.getenv('QDB_HOST', 'localhost')
+                    port = int(os.getenv('QDB_PORT', '8812'))
+                    user = os.getenv('QDB_USER', 'admin')
+                    password = os.getenv('QDB_PASS', 'quest')
+                    dbname = os.getenv('QDB_DB', 'qdb')
+                    self._conn = psycopg2.connect(
+                        host=host,
+                        port=port,
+                        user=user,
+                        password=password,
+                        dbname=dbname,
+                        connect_timeout=2
+                    )
+                except Exception as e:
+                    logging.error(f"创建QuestDB连接失败: {e}")
+                    self._conn = None
         
         if not self._conn:
             raise RuntimeError("QuestDB 连接不可用")
@@ -86,15 +104,10 @@ class QtasksOrm:
         with self._lock:
             if not self._external_conn and hasattr(self, '_conn') and self._conn:
                 try:
-                    # 尝试使用连接池归还连接
-                    from db.db_pool import put_conn
-                    put_conn(self._conn)
+                    # 直接关闭连接，不使用连接池
+                    self._conn.close()
                 except Exception:
-                    # 回退到直接关闭连接
-                    try:
-                        self._conn.close()
-                    except Exception:
-                        pass
+                    pass
                 self._conn = None
             
             # 清理任务锁资源
@@ -192,8 +205,8 @@ class QtasksOrm:
 
     def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, limit: int = 100, offset: int = 0):
         
-        if self._conn.closed or not hasattr(self, '_conn') or not self._conn:
-            # 连接已关闭，重新初始化
+        if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+            # 连接不存在或已关闭，重新初始化
             self._initialize()
                 
         cur = self._conn.cursor()
@@ -229,8 +242,8 @@ class QtasksOrm:
             return
             
         with self._lock:
-            if not hasattr(self, '_conn') or not self._conn.closed:
-                # 连接已关闭，重新初始化
+            if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+                # 连接不存在或已关闭，重新初始化
                 self._initialize()
                 
         with self._get_task_lock(task_id):
@@ -317,8 +330,8 @@ class QtasksOrm:
         使用全局锁避免多个线程同时获取同一个任务
         """
         with self._lock:
-            if not hasattr(self, '_conn') or not self._conn.closed:
-                # 连接已关闭，重新初始化
+            if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+                # 连接不存在或已关闭，重新初始化
                 self._initialize()
                 
             cur = self._conn.cursor()

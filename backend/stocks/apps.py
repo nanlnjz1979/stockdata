@@ -23,14 +23,15 @@ class StocksConfig(AppConfig):
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
 
-            from data_pipeline.collector import qdb_connect, qdb_ensure_tables
-            conn = qdb_connect()
+            from db.db_pool import get_conn, put_conn
+            from data_pipeline.collector import qdb_ensure_tables
+            conn = get_conn()
             if conn:
                 try:
                     qdb_ensure_tables(conn)
                 finally:
                     try:
-                        conn.close()
+                        put_conn(conn)
                     except Exception:
                         pass
         except Exception:
@@ -45,16 +46,16 @@ class StocksConfig(AppConfig):
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
 
-            from data_pipeline.collector import qdb_connect
-            from global_config.config import GlobalConfig
+            from db.db_pool import get_conn, put_conn
+            from backend.global_config import GlobalConfig
             from stocks.tasks.scheduler import build_schedules_from_global_config
-            conn = qdb_connect()
+            conn = get_conn()
             if conn:
                 try:
                     _ = GlobalConfig(conn)  # 读取并缓存 schedule_configs（同时写回默认值）
                 finally:
                     try:
-                        conn.close()
+                        put_conn(conn)
                     except Exception:
                         pass
                 # 构建/更新django-q计划

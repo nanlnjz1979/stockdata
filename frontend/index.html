@@ -6,6 +6,7 @@
   <title>Stock Data - 前端控制台</title>
   <link rel="stylesheet" href="styles.css" />
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet" />
+  <!-- 移除了ECharts库引用，因为图表功能已移除 -->
 </head>
 <body>
   <div class="layout">
@@ -14,7 +15,7 @@
       <div class="brand"><span class="logo"></span>Stock Data</div>
       <div class="user" id="userStatus">未登录</div>
       <nav>
-        <button class="tab active" data-target="quotes"><i class="ri-line-chart-line"></i><span>行情</span></button>
+        <!-- 行情按钮已移除 -->
         <button class="tab" data-target="query"><i class="ri-search-line"></i><span>查询</span></button>
         <button class="tab" data-target="analysis"><i class="ri-pulse-line"></i><span>分析</span></button>
         <button class="tab" data-target="profile"><i class="ri-user-3-line"></i><span>个人中心</span></button>
@@ -35,64 +36,91 @@
         <button class="btn outline" id="exportBtn">导出</button>
       </div>
       <div class="container">
-        <!-- 行情 -->
-        <section id="quotes" class="section active">
-          <div class="grid">
-            <div class="card">
-              <h3>实时行情</h3>
-              <div class="status">通过 WebSocket 推送（占位）</div>
-              <div id="chart"></div>
-            </div>
-            <div class="card">
-              <h3>订阅</h3>
-              <div class="status">添加代码并订阅</div>
-              <div style="display:flex; gap:8px;">
-                <input id="subCode" class="input" placeholder="输入股票代码，如 600519" />
-                <button id="subBtn" class="btn">订阅</button>
-              </div>
-              <ul id="subsList"></ul>
-            </div>
-          </div>
-        </section>
+        <!-- 行情section已移除 -->
 
         <!-- 查询 -->
         <section id="query" class="section">
           <div class="card">
-            <h3>历史行情查询</h3>
-            <div class="status">从后端 REST 接口获取</div>
-            <div style="display:flex; gap:8px; margin-bottom:8px;">
-              <input id="queryCode" class="input" placeholder="股票代码，如 TEST" />
-              <input id="queryDate" type="date" class="input" />
-              <button id="queryBtn" class="btn">查询</button>
+            <div class="tabs">
+              <button class="tab-btn active" data-tab="historical">历史行情查询</button>
+              <button class="tab-btn" data-tab="lhb">龙虎榜机构追踪</button>
             </div>
-            <table class="table">
-              <thead>
-                <tr><th>日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>成交量</th></tr>
-              </thead>
-              <tbody id="queryTable"></tbody>
-            </table>
-          </div>
-          <div class="grid">
-            <div class="card">
-              <h3>关注</h3>
-              <div class="status">添加你的关注列表</div>
-              <div style="display:flex; gap:8px; margin-bottom:8px;">
-                <input id="favCode" class="input" placeholder="股票代码" />
-                <button id="favAdd" class="btn">添加</button>
+            
+            <!-- 历史行情查询 -->
+            <div class="tab-content active" id="historical">
+              <div class="status">从后端 REST 接口获取</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                <input id="queryCode" class="input" placeholder="股票代码，如 TEST" />
+                <input id="startDate" type="date" class="input" placeholder="开始时间" />
+                <input id="endDate" type="date" class="input" placeholder="结束时间" />
+                
+                <!-- 复权类型选择 -->
+                <div style="display:flex; gap:12px; align-items:center;">
+                  <span style="font-size:14px;">复权方式：</span>
+                  <label style="display:flex; align-items:center; gap:4px; font-size:14px;">
+                    <input type="radio" name="adjustType" value="qfq" checked />
+                    <span>前复权</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:4px; font-size:14px;">
+                    <input type="radio" name="adjustType" value="hfq" />
+                    <span>后复权</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:4px; font-size:14px;">
+                    <input type="radio" name="adjustType" value="none" />
+                    <span>不复权</span>
+                  </label>
+                </div>
+                
+                <button id="queryBtn" class="btn">查询</button>
               </div>
-              <ul id="favList"></ul>
-            </div>
-            <div class="card">
-              <h3>预警</h3>
-              <div class="status">自定义价格触发</div>
-              <div style="display:flex; gap:8px; margin-bottom:8px;">
-                <input id="alertCode" class="input" placeholder="股票代码" />
-                <input id="alertPrice" class="input" placeholder="触发价" />
-                <button id="alertSave" class="btn">保存</button>
+              <table class="table">
+                <thead>
+                  <tr><th>日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>成交量</th><th>成交额</th><th>换手率</th><th>流通股本</th></tr>
+                </thead>
+                <tbody id="queryTable"></tbody>
+              </table>
+              <!-- 分页控件 -->
+              <div class="pagination" style="display: flex; justify-content: center; margin-top: 16px; align-items: center; gap: 8px;">
+                <button id="prevPage" class="btn outline" disabled>上一页</button>
+                <span>第 <span id="currentPage">1</span>/<span id="totalPages">1</span> 页</span>
+                <button id="nextPage" class="btn outline" disabled>下一页</button>
+                <select id="pageSize" class="input" style="width: auto;">
+                  <option value="20">20条/页</option>
+                  <option value="50">50条/页</option>
+                  <option value="100">100条/页</option>
+                </select>
               </div>
-              <ul id="alertList"></ul>
+            </div>
+            
+            <!-- 龙虎榜机构追踪 -->
+            <div class="tab-content" id="lhb">
+              <div class="status">龙虎榜机构交易数据</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <span>日期：</span>
+                  <input id="lhbDate" type="date" class="input" />
+                </div>
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <span>查询类型：</span>
+                  <select id="lhbQueryType" class="input">
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="30">30</option>
+                  </select>
+                </div>
+                <button id="lhbBtn" class="btn">查询</button>
+              </div>
+              <div id="lhbLoading" class="loader" style="display:none; text-align:center; padding:20px;">加载中...</div>
+              <table class="table">
+                <thead>
+                  <tr><th>股票代码</th><th>股票名称</th><th>买入金额</th><th>买入次数</th><th>卖出金额</th><th>卖出次数</th><th>净额</th><th>查询类型</th></tr>
+                </thead>
+                <tbody id="lhbTable"></tbody>
+              </table>
+              <div id="lhbNoData" class="status" style="display:none; text-align:center; padding:20px;">暂无数据</div>
             </div>
           </div>
+
         </section>
 
         <!-- 数据状态 -->
@@ -108,19 +136,10 @@
             </div>
           </div>
           <div class="grid">
-            <div class="card">
-              <h3>总览</h3>
-              <div id="statusOverview" class="status">加载中...</div>
-            </div>
-            <div class="card">
-              <h3>市场分布</h3>
-              <table class="table"><thead><tr><th>市场</th><th>数量</th></tr></thead><tbody id="statusMarkets"></tbody></table>
-            </div>
+            <!-- 总览卡片已移除 -->
+            <!-- 市场分布卡片已移除 -->
             <!-- 移除行业Top卡片 -->
-            <div class="card">
-              <h3>上市日期范围</h3>
-              <div id="statusListing" class="status">-</div>
-            </div>
+            <!-- 上市日期范围卡片已移除 -->
           </div>
         </section>
 

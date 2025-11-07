@@ -25,7 +25,6 @@ try:
 except Exception:
     psycopg2 = None
 
-
 def qdb_connect():
     """连接 QuestDB（PG wire），从环境变量读取连接信息。"""
     if not psycopg2:

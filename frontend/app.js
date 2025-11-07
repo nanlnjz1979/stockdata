@@ -25,15 +25,11 @@ const API_BASE = 'http://127.0.0.1:8000';
 // 登录（无需验证）
 (function initLogin(){
   const login = qs('#login');
-  const btn = qs('#loginBtn');
-  const nameInput = qs('#nickname');
-  btn.addEventListener('click', () => {
-    const name = (nameInput.value || '').trim();
-    if (!name) return toast('请输入昵称');
-    login.style.display = 'none';
-    qs('#userStatus').textContent = `欢迎，${name}`;
-    toast('登录成功');
-  });
+  // 直接隐藏登录窗口，不再要求用户输入
+  login.style.display = 'none';
+  // 设置默认用户名称
+  qs('#userStatus').textContent = `欢迎，管理员`;
+  toast('已自动登录');
 })();
 
 // 标签导航与标题更新
@@ -42,45 +38,16 @@ const API_BASE = 'http://127.0.0.1:8000';
   function showTab(target){
     qsa('.section').forEach(s => s.classList.toggle('active', s.id === target));
     tabs.forEach(t => t.classList.toggle('active', t.dataset.target === target));
-    const titleMap = { quotes: '行情', query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', 'task-monitor': '任务状态', tasks: '计划任务', config: '参数配置' };
+    const titleMap = { query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', 'task-monitor': '任务状态', tasks: '计划任务', config: '参数配置' };
     const title = titleMap[target] || '模块';
     qs('#pageTitle').textContent = title;
   }
   tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.target)));
-  showTab('quotes');
+  showTab('query');
 })();
 
 // 行情图初始化（ECharts，占位数据）
-(function initChart(){
-  const el = qs('#chart');
-  if (!el) return;
-  const chart = echarts.init(el);
-  const baseData = Array.from({length: 60}, (_, i) => [i, 100 + Math.sin(i/4)*8 + (i%7)]);
-  chart.setOption({
-    grid: { left: 36, right: 16, top: 24, bottom: 28 },
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category' },
-    yAxis: { type: 'value' },
-    series: [{ type: 'line', data: baseData.map(d => d[1]), smooth: true, lineStyle: { width: 2 }, areaStyle: { opacity: 0.08 } }],
-    color: ['#1677ff']
-  });
-  const subBtn = qs('#subBtn');
-  const subCode = qs('#subCode');
-  const subsList = qs('#subsList');
-  if (subBtn) {
-    subBtn.addEventListener('click', () => {
-      const code = (subCode.value || '').trim();
-      if (!code) return toast('请输入订阅代码');
-      const li = document.createElement('li');
-      li.textContent = code;
-      subsList.appendChild(li);
-      toast(`已订阅 ${code}`);
-      baseData.push([baseData.length, baseData[baseData.length-1][1] + (Math.random()-0.5)*2]);
-      baseData.shift();
-      chart.setOption({ series: [{ data: baseData.map(d => d[1]) }] });
-    });
-  }
-})();
+// 实时行情和图表功能已移除
 
 // 任务监控模块
 (function initTaskMonitor() {
@@ -276,30 +243,477 @@ const API_BASE = 'http://127.0.0.1:8000';
 
 })();
 
-// 查询接口占位
-(function initQuery(){
+// 历史行情查询
+// 查询界面选项卡切换功能
+(function initQueryTabs() {
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tab = this.getAttribute('data-tab');
+      
+      // 移除所有激活状态
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      // 添加当前激活状态
+      this.classList.add('active');
+      document.getElementById(tab).classList.add('active');
+    });
+  });
+})();
+
+// 历史行情查询
+(function initQuery() {
+  console.log('初始化历史行情查询功能');
   const btn = qs('#queryBtn');
   const codeEl = qs('#queryCode');
-  const dateEl = qs('#queryDate');
+  const startDateEl = qs('#startDate');
+  const endDateEl = qs('#endDate');
   const tbody = qs('#queryTable');
-  if (!btn) return;
-  btn.addEventListener('click', async () => {
-    const code = (codeEl.value || 'TEST').trim();
-    const url = `${API_BASE}/api/stocks/quotes?code=${encodeURIComponent(code)}`;
+  const adjustTypeEls = document.getElementsByName('adjustType');
+  
+  // 分页相关元素
+  const prevPageBtn = qs('#prevPage');
+  const nextPageBtn = qs('#nextPage');
+  const currentPageEl = qs('#currentPage');
+  const totalPagesEl = qs('#totalPages');
+  const pageSizeEl = qs('#pageSize');
+  
+  // 全局变量用于分页
+  let allData = []; // 存储完整查询结果
+  let currentPage = 1;
+  let pageSize = 20;
+  
+  console.log('DOM元素状态:', { btn, codeEl, startDateEl, endDateEl, tbody, adjustTypeEls });
+  
+  if (!btn || !codeEl || !startDateEl || !endDateEl || !tbody || adjustTypeEls.length === 0) {
+    console.warn('查询相关DOM元素未找到');
+    return;
+  }
+  
+  // 获取选中的复权类型
+  function getAdjustType() {
+    for (const el of adjustTypeEls) {
+      if (el.checked) {
+        // 根据用户要求处理复权类型
+        if (el.value === 'qfq') return 'qfq'; // 前复权
+        if (el.value === 'hfq') return 'hfq'; // 后复权
+        return ''; // 不复权，返回空字符串
+      }
+    }
+    return 'qfq'; // 默认前复权
+  }
+  
+  // 设置默认日期范围（最近7天）
+  function setDefaultDates() {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 7);
+    
+    startDateEl.valueAsDate = startDate;
+    endDateEl.valueAsDate = endDate;
+  }
+  
+  // 初始化时设置默认日期
+  setDefaultDates();
+  
+  // 移除可能存在的旧事件监听器，防止重复绑定
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+  
+  // 渲染表格数据（支持分页）
+  function renderTableData(page = 1) {
+    if (allData.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">暂无数据</td></tr>';
+      return;
+    }
+    
+    // 计算分页参数
+    const totalPages = Math.ceil(allData.length / pageSize);
+    const currentPageNum = Math.max(1, Math.min(page, totalPages));
+    const startIndex = (currentPageNum - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, allData.length);
+    const currentData = allData.slice(startIndex, endIndex);
+    
+    // 更新页码信息
+    currentPage = currentPageNum;
+    currentPageEl.textContent = currentPageNum;
+    totalPagesEl.textContent = totalPages;
+    
+    // 更新按钮状态
+    prevPageBtn.disabled = currentPageNum <= 1;
+    nextPageBtn.disabled = currentPageNum >= totalPages;
+    
+    // 渲染当前页数据
+    tbody.innerHTML = '';
+    currentData.forEach(function(row) {
+      // 根据后端返回的数组格式解析数据：[trade_date, open, close, high, low, volume, amount, outstanding_share, turnover]
+      const date = row[0] || '-';
+      const open = row[1] || '-';
+      const close = row[4] || '-'; // 注意索引位置，根据后端代码调整
+      const high = row[2] || '-';
+      const low = row[3] || '-';
+      const volume = row[5] || '-';
+      // 新增字段
+      const amount = row[6] || '-';
+      const outstandingShare = row[8] || '-';
+      const turnover = row[7] || '-';
+      
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${date}</td>
+        <td>${open}</td>
+        <td>${close}</td>
+        <td>${high}</td>
+        <td>${low}</td>
+        <td>${volume}</td>
+        <td>${amount}</td>
+        <td>${outstandingShare}</td>
+        <td>${turnover}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+  
+  // 绑定分页事件
+  function bindPaginationEvents() {
+    // 上一页
+    prevPageBtn.addEventListener('click', function() {
+      if (currentPage > 1) {
+        renderTableData(currentPage - 1);
+      }
+    });
+    
+    // 下一页
+    nextPageBtn.addEventListener('click', function() {
+      const totalPages = Math.ceil(allData.length / pageSize);
+      if (currentPage < totalPages) {
+        renderTableData(currentPage + 1);
+      }
+    });
+    
+    // 每页条数变化
+    pageSizeEl.addEventListener('change', function() {
+      pageSize = parseInt(this.value);
+      renderTableData(1); // 重置到第一页
+    });
+  }
+  
+  // 初始化分页功能
+  bindPaginationEvents();
+  
+  newBtn.addEventListener('click', async function() {
+    console.log('查询按钮被点击');
+    const code = (codeEl.value || '').trim();
+    console.log('查询股票代码:', code);
+    if (!code) {
+      toast('请输入股票代码');
+      return;
+    }
+    
+    // 获取日期并格式化
+    const startDate = startDateEl.value ? startDateEl.value.replace(/-/g, '') : '';
+    const endDate = endDateEl.value ? endDateEl.value.replace(/-/g, '') : '';
+    
+    // 获取复权类型
+    const adjustType = getAdjustType();
+    console.log('复权类型:', adjustType);
+    
+    // 构建API请求URL
+    console.log('使用API_BASE:', API_BASE);
+    let url = `${API_BASE}/api/stocks/data/daily?code=${encodeURIComponent(code)}&adjust=${adjustType}`;
+    if (startDate) url += `&start_date=${startDate}`;
+    if (endDate) url += `&end_date=${endDate}`;
+    console.log('最终请求URL:', url);
+    
+    // 设置加载状态
+    newBtn.disabled = true;
+    newBtn.textContent = '查询中...';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">查询中...</td></tr>';
+    
     try {
+      // 发送请求
       const res = await fetch(url);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP错误，状态码: ${res.status}`);
+      }
+      
       const data = await res.json();
-      tbody.innerHTML = '';
-      const rows = Array.isArray(data) ? data : (data.items || []);
-      const src = Array.isArray(data.quotes) ? data.quotes : rows;
-      src.slice(0, 20).forEach(r => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${r.timestamp||r.date||'-'}</td><td>${r.open_price||r.open||'-'}</td><td>${r.close_price||r.close||'-'}</td><td>${r.high_price||r.high||'-'}</td><td>${r.low_price||r.low||'-'}</td><td>${r.volume||'-'}</td>`;
-        tbody.appendChild(tr);
-      });
-      toast(`查询完成：${(src||[]).length} 条`);
-    } catch (e) { toast('查询失败（后端未迁移或接口错误）'); }
+      
+      // 检查响应数据格式
+      if (Array.isArray(data)) {
+        // 保存完整数据用于分页
+        allData = data;
+        
+        // 重置到第一页并渲染
+        renderTableData(1);
+        
+        toast(`查询完成：${data.length} 条记录`);
+      } else {
+        // 如果不是预期的数组格式，尝试转换为JSON字符串以便调试
+        console.log('返回的数据格式:', data);
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">数据格式错误</td></tr>';
+        toast('后端返回的数据格式不正确');
+        allData = [];
+        renderTableData(1); // 重置分页状态
+      }
+    } catch (e) {
+      console.error('查询错误:', e);
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">查询失败</td></tr>';
+      toast('查询失败：' + (e.message || '未知错误'));
+      allData = [];
+      renderTableData(1); // 重置分页状态
+    } finally {
+      // 恢复按钮状态
+      newBtn.disabled = false;
+      newBtn.textContent = '查询';
+    }
   });
+})();
+
+// 龙虎榜机构追踪
+(function initLHBQuery() {
+  console.log('初始化龙虎榜机构追踪功能');
+  const btn = qs('#lhbBtn');
+  const dateEl = qs('#lhbDate');
+  const queryTypeEl = qs('#lhbQueryType');
+  const tbody = qs('#lhbTable');
+  const loadingEl = qs('#lhbLoading');
+  const noDataEl = qs('#lhbNoData');
+  
+  // 排序相关变量
+  let currentData = []; // 存储原始数据
+  let sortColumn = null; // 当前排序列索引
+  let sortDirection = 0; // 0: 不排序, 1: 升序, -1: 降序
+  
+  // 可排序的列索引和对应的字段名
+  const sortableColumns = {
+    2: 'buy_amount', // 买入金额
+    3: 'buy_times',  // 买入次数
+    4: 'sell_amount', // 卖出金额
+    5: 'sell_times',  // 卖出次数
+    6: 'net_amount'   // 净额
+  };
+  
+  console.log('龙虎榜DOM元素状态:', { btn, dateEl, queryTypeEl, tbody, loadingEl, noDataEl });
+  
+  if (!btn || !dateEl || !queryTypeEl || !tbody || !loadingEl || !noDataEl) {
+    console.warn('龙虎榜相关DOM元素未找到');
+    return;
+  }
+  
+  // 设置默认日期为当天
+  const today = new Date();
+  const formattedToday = today.toISOString().split('T')[0];
+  dateEl.value = formattedToday;
+  
+  // 更新表头样式，添加排序图标
+    function updateTableHeader() {
+      const thead = tbody.parentNode.querySelector('thead tr');
+      if (thead) {
+        // 重置所有表头样式
+        Array.from(thead.querySelectorAll('th')).forEach((th, index) => {
+          // 清除之前的排序图标和样式
+          th.innerHTML = th.textContent.replace(/\s*↑|↓$/g, '').trim();
+          th.style.cursor = sortableColumns[index] ? 'pointer' : 'default';
+          // 重置颜色为默认值
+          th.style.color = '';
+          
+          // 添加排序图标和样式
+          if (sortableColumns[index] && sortColumn === index) {
+            if (sortDirection === 1) {
+              th.innerHTML += ' ↑';
+              th.style.color = '#f56c6c';
+            } else if (sortDirection === -1) {
+              th.innerHTML += ' ↓';
+              th.style.color = '#67c23a';
+            }
+            // 不排序状态不设置颜色
+          }
+        });
+      }
+    }
+  
+  // 排序函数
+  function sortData() {
+    if (!sortColumn || sortDirection === 0) {
+      return currentData.slice();
+    }
+    
+    const field = sortableColumns[sortColumn];
+    if (!field) return currentData.slice();
+    
+    return currentData.slice().sort((a, b) => {
+      const valA = parseFloat(a[field] || 0);
+      const valB = parseFloat(b[field] || 0);
+      
+      if (sortDirection === 1) {
+        return valA - valB;
+      } else {
+        return valB - valA;
+      }
+    });
+  }
+  
+  // 渲染表格数据
+  function renderTable(data) {
+    tbody.innerHTML = '';
+    
+    // 限制显示最多200条记录
+    data.slice(0, 200).forEach(function(row) {
+      // 解析数据，使用对象属性访问，与数据库表结构对应
+      const stockCode = row.code || row.stock_code || '-';
+      const stockName = row.name || row.stock_name || '-';
+      const buyAmount = row.buy_amount || 0;
+      const buyTimes = row.buy_times || 0;
+      const sellAmount = row.sell_amount || 0;
+      const sellTimes = row.sell_times || 0;
+      const netAmount = row.net_amount || (buyAmount - sellAmount).toFixed(2);
+      const queryType = row.query_type || queryTypeEl.value;
+      
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${stockCode}</td>
+        <td>${stockName}</td>
+        <td>${buyAmount}</td>
+        <td>${buyTimes}</td>
+        <td>${sellAmount}</td>
+        <td>${sellTimes}</td>
+        <td>${netAmount}</td>
+        <td>${queryType}</td>
+      `;
+      
+      // 设置净额的样式
+      const netTd = tr.querySelector('td:nth-child(7)');
+      if (parseFloat(netAmount) > 0) {
+        netTd.style.color = '#f56c6c';
+      } else if (parseFloat(netAmount) < 0) {
+        netTd.style.color = '#67c23a';
+      }
+      
+      tbody.appendChild(tr);
+    });
+  }
+  
+  // 初始化表头点击事件
+  function initTableSorting() {
+    const thead = tbody.parentNode.querySelector('thead tr');
+    if (thead) {
+      Array.from(thead.querySelectorAll('th')).forEach((th, index) => {
+        if (sortableColumns[index]) {
+          th.style.cursor = 'pointer';
+          th.addEventListener('click', function() {
+            // 切换排序状态：0 -> 1 -> -1 -> 0
+            if (sortColumn === index) {
+              // 当前列已经排序，切换到下一个状态
+              if (sortDirection === 1) {
+                sortDirection = -1; // 升序 -> 降序
+              } else if (sortDirection === -1) {
+                sortDirection = 0; // 降序 -> 不排序
+              } else {
+                sortDirection = 1; // 不排序 -> 升序
+              }
+            } else {
+              sortColumn = index;
+              sortDirection = 1; // 新列默认升序
+            }
+            
+            // 更新表头样式
+            updateTableHeader();
+            
+            // 重新渲染排序后的数据
+            const sortedData = sortData();
+            renderTable(sortedData);
+          });
+        }
+      });
+    }
+  }
+  
+  // 通用查询函数
+  async function queryDragonTiger(isDetail = false) {
+    const ingestDate = (dateEl.value || '').trim();
+    const queryType = queryTypeEl.value;
+    
+    console.log('查询参数:', { ingestDate, queryType, isDetail });
+    
+    // 构建API请求URL
+    const apiPath = isDetail ? '/api/stocks/data/dragon_tiger/detail' : '/api/stocks/data/dragon_tiger';
+    let url = `${API_BASE}/${apiPath}?ingest_date=${encodeURIComponent(ingestDate)}&query_type=${encodeURIComponent(queryType)}`;
+    console.log('最终请求URL:', url);
+    
+    // 重置排序状态
+    sortColumn = null;
+    sortDirection = 0;
+    
+    // 设置加载状态
+    btn.disabled = true;
+    btn.textContent = '查询中...';
+    tbody.innerHTML = '';
+    loadingEl.style.display = 'block';
+    noDataEl.style.display = 'none';
+    
+    try {
+      // 发送请求
+      const res = await fetch(url);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP错误，状态码: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      
+      // 检查响应数据格式
+      if (Array.isArray(data)) {
+        // 保存原始数据
+        currentData = data;
+        
+        if (data.length === 0) {
+          noDataEl.style.display = 'block';
+          toast('未找到符合条件的龙虎榜数据');
+          return;
+        }
+        
+        // 更新表头样式
+        updateTableHeader();
+        
+        // 渲染表格
+        renderTable(data);
+        
+        toast(`查询完成：${data.length} 条龙虎榜记录${isDetail ? '（详细）' : ''}`);
+      } else {
+        // 如果不是预期的数组格式，尝试转换为JSON字符串以便调试
+        console.log('返回的数据格式:', data);
+        noDataEl.style.display = 'block';
+        toast('后端返回的数据格式不正确');
+      }
+    } catch (e) {
+      console.error('龙虎榜查询错误:', e);
+      noDataEl.style.display = 'block';
+      toast('查询失败：' + (e.message || '未知错误'));
+    } finally {
+      // 恢复按钮状态
+      btn.disabled = false;
+      btn.textContent = '查询';
+      loadingEl.style.display = 'none';
+    }
+  }
+  
+  // 初始化表格排序
+  initTableSorting();
+  
+  // 移除可能存在的旧事件监听器，防止重复绑定
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+  
+  // 查询按钮事件
+  newBtn.addEventListener('click', function() {
+    queryDragonTiger(false);
+  });
+  
+  // 详情按钮已移除
 })();
 
 // MA(5) 示例
@@ -319,45 +733,11 @@ const API_BASE = 'http://127.0.0.1:8000';
   });
 })();
 
-// 关注列表（本地存储回退）
-(function initFav(){
-  const key = 'favList';
-  const list = qs('#favList');
-  const addBtn = qs('#favAdd');
-  const codeEl = qs('#favCode');
-  if (!addBtn) return;
-  const save = () => localStorage.setItem(key, JSON.stringify(Array.from(list.querySelectorAll('li')).map(li => li.textContent)));
-  const load = () => {
-    list.innerHTML = '';
-    try {
-      (JSON.parse(localStorage.getItem(key)||'[]')||[]).forEach(c => { const li = document.createElement('li'); li.textContent = c; list.appendChild(li); });
-    } catch {}
-  };
-  addBtn.addEventListener('click', () => { const c = (codeEl.value||'').trim(); if(!c) return; const li=document.createElement('li'); li.textContent=c; list.appendChild(li); save(); });
-  load();
-})();
-
-// 预警占位
-(function initAlert(){
-  const list = qs('#alertList');
-  const saveBtn = qs('#alertSave');
-  if (!saveBtn) return;
-  saveBtn.addEventListener('click', () => {
-    const code = (qs('#alertCode').value||'').trim();
-    const price = (qs('#alertPrice').value||'').trim();
-    if (!code || !price) return toast('请填写代码与价格');
-    const li = document.createElement('li');
-    li.textContent = `${code} 触发价 ${price}`;
-    list.appendChild(li);
-    toast('已保存预警（占位）');
-  });
-})();
+// 关注和预警功能已移除
 
 // 数据状态模块（筛选+趋势+备份健康）
 (function initStatus(){
-  const overview = qs('#statusOverview');
-  const marketsBody = qs('#statusMarkets');
-  const listing = qs('#statusListing');
+  // 总览和市场分布功能已移除
   const refreshBtn = qs('#statusRefresh');
   const marketSel = qs('#statusMarket');
   const startEl = qs('#financeStart');
@@ -399,19 +779,12 @@ const API_BASE = 'http://127.0.0.1:8000';
     try {
       const res = await fetch(buildUrl());
       const data = await res.json();
-      // 总览
-      const ov = data.overview || {};
-      overview.innerHTML = `基础股票：<b>${ov.stock_basic_count||0}</b>，财务记录：<b>${ov.finance_count||0}</b>，关注记录：<b>${ov.follow_count||0}</b>，最新财报日期：<b>${ov.latest_finance_date||'-'}</b>`;
+      // 总览和市场分布功能已移除
       // 备份健康
       const bk = data.backup || {};
       const sizeMB = bk.size_bytes ? (bk.size_bytes/1e6).toFixed(2) : '0.00';
       backupEl.innerHTML = `数据库：<code>${bk.db_path||'-'}</code>；大小：<b>${sizeMB} MB</b>；最后更新：<b>${bk.last_modified||'-'}</b>；健康度：<b>${bk.health_score||0}</b>/100`;
-      // 市场分布
-      marketsBody.innerHTML = '';
-      (data.markets||[]).forEach(m => { const tr = document.createElement('tr'); tr.innerHTML = `<td>${m.market||'-'}</td><td>${m.count||0}</td>`; marketsBody.appendChild(tr); });
-      // 上市日期范围
-      const rng = data.listing_range || {};
-      listing.textContent = `最早：${rng.min||'-'}，最晚：${rng.max||'-'}`;
+      // 上市日期范围功能已移除
       // 趋势图
       renderTrend(data.trends || []);
       // 选项填充（仅首次或空时）
@@ -419,8 +792,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         (data.options?.markets||[]).forEach(v => { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; marketSel.appendChild(opt); });
       }
     } catch(e) {
-      overview.textContent = '加载失败（请确认后端运行且数据已迁移）';
-      listing.textContent = '-';
+      // 异常处理 - 总览功能已移除
     }
   }
 

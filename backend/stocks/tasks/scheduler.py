@@ -14,9 +14,7 @@ project_root = Path(settings.BASE_DIR).parent
 if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
-from global_config.config import GlobalConfig
-from data_pipeline.collector import qdb_connect
-
+from backend.global_config import GlobalConfig
 
 def _compute_next_run_for_daily(hhmmss: str) -> datetime:
     """根据 HH:MM:SS 计算下一次运行时间（本地时区）。"""
@@ -98,7 +96,7 @@ def run_config_job(config_id: str) -> bool:
         if config_id in tasks:
             task = tasks[config_id](orm)
             task.generate(task_type=config_id, task_desc=task_desc, params=params, priority=0)
-            return bool(ok)
+            return True
         else:
             # 未知配置ID：仅记录日志
             print(f"[Scheduler] Unknown config_id: {config_id}; params={params}")
@@ -119,7 +117,7 @@ def build_schedules_from_global_config() -> int:
     conn = None
     #Schedule.objects.all().delete()
     try:
-        conn = qdb_connect()
+        conn = get_conn()
         gc = GlobalConfig(conn)
         cfgs = getattr(gc, '_schedule_configs', {}) or {}
         count = 0
@@ -170,9 +168,9 @@ def build_schedules_from_global_config() -> int:
         run_config_job("LHB_InstituteTrack")
         return count
     finally:
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
+            try:
+                if conn:
+                    put_conn(conn)
+            except Exception:
+                pass
     
