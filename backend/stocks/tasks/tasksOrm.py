@@ -3,6 +3,7 @@ import threading
 import logging
 import sys
 import os
+import datetime
 
 # 添加项目路径以便导入连接池
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -123,12 +124,14 @@ class QtasksOrm:
             cur = self._conn.cursor()
             try:
                 self._conn.autocommit = False
+                import datetime
+                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 cur.execute(
                     """
                     insert into tasks (task_id, task_type, task_desc, task_params, priority, status, created_at)
-                    values (%s, %s, %s, %s, %s, %s, now())
+                    values (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (task_id, task_type, task_desc, task_params, int(priority or 0), status),
+                    (task_id, task_type, task_desc, task_params, int(priority or 0), status, now),
                 )
                 try:
                     self._conn.commit()
@@ -155,15 +158,17 @@ class QtasksOrm:
             try:
                 self._conn.autocommit = False
                 # 当置为"处理中"时设置 started_at；当置为"成功/失败/已取消"时设置 ended_at
+                # 获取当前时间
+                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 cur.execute(
                     """
                     update tasks
                     set status=%s,
-                        started_at = (case when %s='处理中' and started_at is null then now() else started_at end),
-                        ended_at   = (case when %s in ('成功','失败','已取消') then now() else ended_at end)
+                        started_at = (case when %s='处理中' and started_at is null then %s else started_at end),
+                        ended_at   = (case when %s in ('成功','失败','已取消') then %s else ended_at end)
                     where task_id=%s
                     """,
-                    (status, status, status, task_id),
+                    (status, status, now, status, now, task_id),
                 )
                 try:
                     self._conn.commit()
@@ -203,7 +208,7 @@ class QtasksOrm:
             row = cur.fetchone()
             return self._row_to_dict(cur, row) if row else None
 
-    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, limit: int = 100, offset: int = 0):
+    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 100, offset: int = 0):
         
         if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
             # 连接不存在或已关闭，重新初始化
@@ -218,6 +223,9 @@ class QtasksOrm:
         if task_type:
             where.append("task_type=%s")
             params.append(task_type)
+        if task_params:
+            where.append("task_params=%s")
+            params.append(task_params)
         where_sql = (" where " + " and ".join(where)) if where else ""
         # QuestDB 不支持 OFFSET，移除 offset，仅保留 limit
         cur.execute(

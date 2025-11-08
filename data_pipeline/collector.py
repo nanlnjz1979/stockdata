@@ -89,7 +89,7 @@ def qdb_ensure_tables(conn=None):
             amount double,         --成交额
             turnover double,       --换手率
             outstanding_share double --流通股本
-          ) PARTITION BY DAY(trade_date); --按交易日按天分区
+          ) TIMESTAMP(trade_date) PARTITION BY DAY; --按交易日按天分区
         """)
         #目前就用questdb做存储，然后做个检查程序，如果某一天的任务状态status都变成已完成，就把这个分区删掉，分区通过创建时间分区
         cur.execute("""
@@ -103,7 +103,7 @@ def qdb_ensure_tables(conn=None):
             created_at timestamp,     --任务创建时间
             started_at timestamp,     --任务开始执行时间
             ended_at timestamp        --任务结束时间
-          ) PARTITION BY DAY(created_at); --按任务创建时间按天分区
+          ) TIMESTAMP(created_at) PARTITION BY DAY; --按任务创建时间按天分区
         """)
 
         cur.execute(    
@@ -118,7 +118,7 @@ def qdb_ensure_tables(conn=None):
               sell_times int,       -- 累计卖出次数
               net_amount double,    -- 净额(单位: 万)（net_amount = buy_amount - sell_amount）
               query_type int        -- 查询类型（5/10/30/60天）
-            ) PARTITION BY DAY(ingest_date); --按入库时间按天分区
+            ) TIMESTAMP(ingest_date) PARTITION BY DAY ; --按入库时间按天分区
             """
         )
 
@@ -133,11 +133,6 @@ def qdb_ensure_tables(conn=None):
             enabled int             --是否开启
           );
         """)
-        try:
-            cur.execute("ALTER TABLE schedule_configs RENAME COLUMN task_type TO task_desc")
-        except Exception:
-            pass
-
 
         if conn is not qdb_connect:
             pass

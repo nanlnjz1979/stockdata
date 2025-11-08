@@ -60,16 +60,14 @@ def _start_queue_update_thread():
     def worker():
         try:
 
-            
-
-            
             # 从连接池获取连接
             conn = get_conn()
             orm = QtasksOrm(conn)
 
             # 预估待处理总数
-            test_task_type = DTBInstTradingTrackerTask.taskID()
-            pending = orm.list_tasks(status="待处理", task_type = test_task_type ,limit=100000)
+            #test_task_type = DTBInstTradingTrackerTask.taskID()            #测试代码，有限处理某一种类型
+            #pending = orm.list_tasks(status="待处理", task_type = test_task_type ,limit=100000)
+            pending = orm.list_tasks(status="待处理", limit=100000)
             _queue_ctrl['state']['total_codes'] = len(pending)
             # 按优先级逐个处理
             idx = 0
@@ -82,8 +80,8 @@ def _start_queue_update_thread():
                     break
 
                 # 取下一个待处理任务
-                item = orm.next_pending_task(task_type = test_task_type) 
-                #item = orm.next_pending_task()
+                #item = orm.next_pending_task(task_type = test_task_type) 
+                item = orm.next_pending_task()
                 if not item:
                     break
                 tid = item.get('task_id')

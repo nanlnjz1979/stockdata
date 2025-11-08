@@ -116,7 +116,7 @@ class DownloadDailyTask(BaseTask):
             return {}
     @classmethod
     def taskID(cls) -> str:
-        return "Download_daily"
+        return "Download_Full_Daily"
     def run(self, conn=None,params_str: str = None) -> bool:
         # 检查依赖
         if not (ak):

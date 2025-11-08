@@ -87,6 +87,6 @@ Q_CLUSTER = {
     'retry': 120,
     'queue_limit': 50,
     'bulk': 10,
-    'catch_up': True,  # 修改为True，允许错过的任务执行
+    'catch_up': False,  # 修改为True，允许错过的任务执行
     'orm': 'default',
 }

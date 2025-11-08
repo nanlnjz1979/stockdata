@@ -215,9 +215,14 @@ def _start_full_update_thread():
             orm = QtasksOrm(conn)
             task = DownloadDailyTask(orm)
             for item in basics:     #基础库中的一条记录
+                # 检查是否需要停止
+                if _update_ctrl['stop_event'].is_set():
+                    break
+                
                 code = item.get('code')     #股票代码
                 if not code:
                     continue
+                
                 market = item.get('market') #市场上海，深圳，北京
                 listing_date = item.get('listing_date')#上市时间
                 if not listing_date:
@@ -232,44 +237,12 @@ def _start_full_update_thread():
                     except Exception:
                         start_date = '19841118'
                 
-                task.generate("download_daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
-            dl_daily = orm.list_tasks(status="待处理", task_type="download_daily", limit=100000)
-            for item in dl_daily:
-                if _update_ctrl['stop_event'].is_set():
-                    break
-                while _update_ctrl['state']['paused']:
-                    if _update_ctrl['stop_event'].is_set():
-                        break
-                    time.sleep(0.2)
-                if _update_ctrl['stop_event'].is_set():
-                    break
-                try:
-                    import json
-                    params = json.loads(item.get('task_params') or '{}')
-                except Exception:
-                    params = {}
-                code = params.get('code')
-                _update_ctrl['state']['current_code'] = code
-                t = DownloadDailyTask(orm)
-                t.task_id = item.get('task_id')
-                t.task_type = item.get('task_type')
-                t.task_desc = item.get('task_desc')
-                t.params_str = item.get('task_params') or '{}'
-                t.priority = item.get('priority') or 0
-                try:
-                    orm.update_task_status(t.task_id, "处理中")
-                except Exception:
-                    pass
-                try:
-                    ok = t.run(conn=conn)
-                except Exception:
-                    ok = False
-                try:
-                    orm.update_task_status(t.task_id, "成功" if ok else "失败")
-                except Exception:
-                    pass
+                # 只生成任务，不执行具体下载和更新
+                task.generate("Download_Full_Daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
+                
+                # 更新状态计数
                 _update_ctrl['state']['updated_count'] += 1
-                time.sleep(0.01)
+                time.sleep(0.01)  # 避免过快生成任务
             try:
                 if conn:
                     put_conn(conn)

@@ -138,7 +138,8 @@ class DTBInstTradingTrackerTask(BaseTask):
     def __init__(self, orm):
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
-    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 0) -> str:
+    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 2) -> str:
+        #priority 默认优先级是1，要比股票数据下载的优先级小
         self.task_type = task_type
         self.task_desc = task_desc
         self.priority = priority

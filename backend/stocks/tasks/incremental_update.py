@@ -100,7 +100,7 @@ class IncrementalUpdateTask(BaseTask):
         # 仅要求传入orm，其余字段在generate()时设置
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
-    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 0) -> str:
+    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 1) -> str:
         # 在生成前配置必要字段
         self.task_type = task_type
         self.task_desc = task_desc
