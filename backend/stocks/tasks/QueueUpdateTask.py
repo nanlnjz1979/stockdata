@@ -54,7 +54,7 @@ def _start_queue_update_thread():
         'ended_at': None,
     })
 
-    from stocks.tasks import DTBInstTradingTrackerTask,DownloadDailyTask, QtasksOrm
+    from stocks.tasks import DTBInstTradingTrackerTask,DownloadDailyTask, IncrementalUpdateTask,QtasksOrm
     
 
     def worker():
@@ -109,11 +109,13 @@ def _start_queue_update_thread():
                 if not code and isinstance(params.get('codes'), list) and params.get('codes'):
                     code = params.get('codes')[0]
                 _queue_ctrl['state']['current_code'] = code or item.get('task_type')
-                # 根据类型构造任务，目前支持 download_daily 和 DTBInstTradingTrackerTask
+                # 根据类型构造任务，目前支持 Download_Full_Daily 和 DTBInstTradingTrackerTask
                 if taskType == DownloadDailyTask.taskID():  #下载全部的数据
                     t = DownloadDailyTask( orm )
                 elif taskType == DTBInstTradingTrackerTask.taskID():
                     t = DTBInstTradingTrackerTask( orm )
+                elif taskType == IncrementalUpdateTask.taskID():
+                    t = IncrementalUpdateTask( orm )
                 else:
                     continue
                 t.task_id = item.get('task_id')

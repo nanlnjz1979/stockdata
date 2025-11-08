@@ -7,9 +7,10 @@ import logging
 # 添加项目路径到sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
-# 导入数据库连接池工具
+# 导入数据库连接池工具和全局工具函数
 try:
     from db.import_utils import get_db_pool_functions
+    from backend.global_config.utils import _num, _int, make_symbol
 except ImportError:
     # 如果导入失败，定义fallback函数
     def get_db_pool_functions():
@@ -67,48 +68,48 @@ def qdb_ensure_tables(conn=None):
         cur = conn.cursor()
         cur.execute("""
           create table if not exists stock_basic (
-            code symbol,
-            name string,
-            company_name string,
-            market symbol,
-            listing_date date
+            code symbol,            --股票代码
+            name string,             --股票名称
+            company_name string,     --公司全称
+            market symbol,           --市场类型（如SH、SZ）
+            listing_date date        --上市日期
           );
         """)
 
         cur.execute("""
           create table if not exists stock_daily (
-            code symbol,
-            trade_date date,
-            adjust_type symbol,
-            open double,
-            close double,
-            high double,
-            low double,
-            volume long,
-            amount double,
-            turnover double,
-            outstanding_share double
-          );
+            code symbol,           --股票代码
+            trade_date timestamp,  --交易日期时间戳
+            adjust_type symbol,    --复权类型
+            open double,           --开盘价
+            close double,          --收盘价
+            high double,           --最高价
+            low double,            --最低价
+            volume long,           --成交量
+            amount double,         --成交额
+            turnover double,       --换手率
+            outstanding_share double --流通股本
+          ) PARTITION BY DAY(trade_date); --按交易日按天分区
         """)
-        
+        #目前就用questdb做存储，然后做个检查程序，如果某一天的任务状态status都变成已完成，就把这个分区删掉，分区通过创建时间分区
         cur.execute("""
           create table if not exists tasks (
-            task_id symbol,
-            task_type string,
-            task_desc string,
-            task_params string,
-            priority int,
-            status symbol,
-            created_at timestamp,
-            started_at timestamp,
-            ended_at timestamp
-          );
+            task_id string,           --任务唯一标识符(UUID格式)
+            task_type symbol,         --任务类型，如下载、更新等    例如LHB_InstituteTrack
+            task_desc string,         --任务描述信息
+            task_params string,       --任务参数，JSON格式
+            priority int,             --任务优先级，数字越大优先级越高
+            status symbol,            --任务状态，如待处理、处理中、已完成等
+            created_at timestamp,     --任务创建时间
+            started_at timestamp,     --任务开始执行时间
+            ended_at timestamp        --任务结束时间
+          ) PARTITION BY DAY(created_at); --按任务创建时间按天分区
         """)
 
         cur.execute(    
             """
             create table if not exists inst_trading_tracker (   --机构席位追踪表
-              ingest_date date,     --查询的日期,大部分是入库的时间
+              ingest_date timestamp,     --查询的日期时间,大部分是入库的时间戳
               code symbol,          --股票的代码
               name string,          --股票名称
               buy_amount double,    -- 累计买入额(单位: 万)
@@ -117,17 +118,17 @@ def qdb_ensure_tables(conn=None):
               sell_times int,       -- 累计卖出次数
               net_amount double,    -- 净额(单位: 万)（net_amount = buy_amount - sell_amount）
               query_type int        -- 查询类型（5/10/30/60天）
-            );
+            ) PARTITION BY DAY(ingest_date); --按入库时间按天分区
             """
         )
 
         # 新增：参数配置表（计划任务）
         cur.execute("""
           create table if not exists schedule_configs (
-            id   symbol ,           --主键
+            id   symbol ,           --任务类型，例如:LHB_InstituteTrack
             name string,            --任务名称
             task_desc string,       --任务描述
-            params string,          --download_daily(下载日线数据)/ Institutional_Trading_Tracking(机构席位追踪)
+            params string,          --Download_Full_Daily(下载日线数据)/ Institutional_Trading_Tracking(机构席位追踪)
             schedule_time timestamp,--例如每天16点
             enabled int             --是否开启
           );
@@ -265,7 +266,7 @@ def qdb_insert_daily(code, df, adj, conn=None):
             adj_norm = adj if (adj and str(adj).strip()) else None
             values.append((
                 code,
-                trade_date.date(),
+                trade_date,
                 adj_norm,
                 _num(r.get('open')),
                 _num(r.get('close')),
@@ -310,18 +311,7 @@ def qdb_insert_daily(code, df, adj, conn=None):
         return 0
 
 
-def _num(x):
-    try:
-        return float(x) if x not in (None, '') else None
-    except Exception:
-        return None
-
-
-def _int(x):
-    try:
-        return int(x) if x not in (None, '') else None
-    except Exception:
-        return None
+# _num和_int函数已从backend.global_config.utils导入
 
 def sync_basic_to_django(conn=None):
     """将 QuestDB 中的基础股票信息同步到 Django ORM（StockBasic）。"""
@@ -455,15 +445,6 @@ def qdb_get_market(code: str):
 def write_daily_to_db(code: str, market='', conn=None):
     total_saved = 0
     latest_date = None
-    def make_symbol(c, m):
-        m = (m or '').upper()
-        if m == 'SH':
-            return 'sh' + c
-        if m == 'SZ':
-            return 'sz' + c
-        if m == 'BJ':
-            return 'bj' + c
-        return 'sz' + c
     symbol = make_symbol(code, market)
     for adj in ['', 'qfq', 'hfq']:
         if not ak:
@@ -484,7 +465,7 @@ def write_daily_to_db(code: str, market='', conn=None):
                         continue
                     try:
                         trade_date = d if isinstance(d, datetime) else datetime.strptime(str(d), '%Y-%m-%d')
-                        latest_date = max(latest_date or trade_date.date(), trade_date.date())
+                        latest_date = max(latest_date or trade_date, trade_date)
                     except Exception:
                         pass
         except Exception:

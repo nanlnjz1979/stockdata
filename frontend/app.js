@@ -488,13 +488,13 @@ const API_BASE = 'http://127.0.0.1:8000';
   let sortColumn = null; // 当前排序列索引
   let sortDirection = 0; // 0: 不排序, 1: 升序, -1: 降序
   
-  // 可排序的列索引和对应的字段名
+  // 可排序的列索引（直接对应数组索引位置）
   const sortableColumns = {
-    2: 'buy_amount', // 买入金额
-    3: 'buy_times',  // 买入次数
-    4: 'sell_amount', // 卖出金额
-    5: 'sell_times',  // 卖出次数
-    6: 'net_amount'   // 净额
+    2: 2, // 买入金额（数组索引2）
+    3: 3, // 买入次数（数组索引3）
+    4: 4, // 卖出金额（数组索引4）
+    5: 5, // 卖出次数（数组索引5）
+    6: 6   // 净额（数组索引6）
   };
   
   console.log('龙虎榜DOM元素状态:', { btn, dateEl, queryTypeEl, tbody, loadingEl, noDataEl });
@@ -542,12 +542,12 @@ const API_BASE = 'http://127.0.0.1:8000';
       return currentData.slice();
     }
     
-    const field = sortableColumns[sortColumn];
-    if (!field) return currentData.slice();
+    const index = sortableColumns[sortColumn];
+    if (index === undefined) return currentData.slice();
     
     return currentData.slice().sort((a, b) => {
-      const valA = parseFloat(a[field] || 0);
-      const valB = parseFloat(b[field] || 0);
+      const valA = parseFloat(a[index] || 0);
+      const valB = parseFloat(b[index] || 0);
       
       if (sortDirection === 1) {
         return valA - valB;
@@ -563,15 +563,16 @@ const API_BASE = 'http://127.0.0.1:8000';
     
     // 限制显示最多200条记录
     data.slice(0, 200).forEach(function(row) {
-      // 解析数据，使用对象属性访问，与数据库表结构对应
-      const stockCode = row.code || row.stock_code || '-';
-      const stockName = row.name || row.stock_name || '-';
-      const buyAmount = row.buy_amount || 0;
-      const buyTimes = row.buy_times || 0;
-      const sellAmount = row.sell_amount || 0;
-      const sellTimes = row.sell_times || 0;
-      const netAmount = row.net_amount || (buyAmount - sellAmount).toFixed(2);
-      const queryType = row.query_type || queryTypeEl.value;
+      // 解析数据，从数组索引获取数据
+      // 数组索引对应关系：0-code, 1-name, 2-buy_amount, 3-buy_times, 4-sell_amount, 5-sell_times, 6-net_amount, 7-query_type
+      const stockCode = row[0] || '-';
+      const stockName = row[1] || '-';
+      const buyAmount = row[2] || 0;
+      const buyTimes = row[3] || 0;
+      const sellAmount = row[4] || 0;
+      const sellTimes = row[5] || 0;
+      const netAmount = row[6] || (parseFloat(buyAmount) - parseFloat(sellAmount)).toFixed(2);
+      const queryType = row[7] || queryTypeEl.value;
       
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -641,7 +642,7 @@ const API_BASE = 'http://127.0.0.1:8000';
     
     // 构建API请求URL
     const apiPath = isDetail ? '/api/stocks/data/dragon_tiger/detail' : '/api/stocks/data/dragon_tiger';
-    let url = `${API_BASE}/${apiPath}?ingest_date=${encodeURIComponent(ingestDate)}&query_type=${encodeURIComponent(queryType)}`;
+    let url = `${API_BASE}/${apiPath}?date=${encodeURIComponent(ingestDate)}&symbol=${encodeURIComponent(queryType)}`;
     console.log('最终请求URL:', url);
     
     // 重置排序状态

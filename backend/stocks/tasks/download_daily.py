@@ -3,20 +3,8 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from backend.global_config import norm_date
+from backend.global_config.utils import _num, _int, make_symbol
 from .base import BaseTask
-
-def _num(x):
-    try:
-        return float(x) if x not in (None, '') else None
-    except Exception:
-        return None
-
-
-def _int(x):
-    try:
-        return int(x) if x not in (None, '') else None
-    except Exception:
-        return None
 
 def _insert_daily(code, df, adj, conn=None):
     if df is None or getattr(df, 'empty', True):
@@ -50,7 +38,7 @@ def _insert_daily(code, df, adj, conn=None):
             adj_norm = adj if (adj and str(adj).strip()) else None
             values.append((
                 code,
-                trade_date.date(),
+                trade_date,
                 adj_norm,
                 _num(r.get('open')),
                 _num(r.get('close')),
@@ -128,7 +116,7 @@ class DownloadDailyTask(BaseTask):
             return {}
     @classmethod
     def taskID(cls) -> str:
-        return "download_daily"
+        return "Download_daily"
     def run(self, conn=None,params_str: str = None) -> bool:
         # 检查依赖
         if not (ak):
@@ -161,15 +149,7 @@ class DownloadDailyTask(BaseTask):
             logger.warning("未提供有效的股票代码（params 需包含 'code' 或 'codes'）")
             return False
 
-        def make_symbol(c: str, m: str) -> str:
-            m = (m or '').upper()
-            if m == 'SH':
-                return 'sh' + c
-            if m == 'SZ':
-                return 'sz' + c
-            if m == 'BJ':
-                return 'bj' + c
-            return 'sz' + c
+        # make_symbol已从backend.global_config.utils导入
 
         conn_local = conn 
         if not conn_local:

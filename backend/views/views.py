@@ -191,7 +191,7 @@ def _start_full_update_thread():
         'started_at': timezone.now(),
         'ended_at': None,
     })
-    
+    from stocks.tasks import DownloadDailyTask, QtasksOrm
     def worker():
         try:
             import sys
@@ -209,17 +209,19 @@ def _start_full_update_thread():
             
             populate_stock_basic_if_empty(conn=conn)
             sync_basic_to_django(conn=conn)
-            basics = qdb_get_all_basic(conn=conn)
+            basics = qdb_get_all_basic(conn=conn)   #基础股票代码库
             _update_ctrl['state']['total_codes'] = len(basics)
-            from stocks.tasks import DownloadDailyTask, QtasksOrm
+            
             orm = QtasksOrm(conn)
             task = DownloadDailyTask(orm)
-            for item in basics:
-                code = item.get('code')
-                market = item.get('market')
-                listing_date = item.get('listing_date')
+            for item in basics:     #基础库中的一条记录
+                code = item.get('code')     #股票代码
+                if not code:
+                    continue
+                market = item.get('market') #市场上海，深圳，北京
+                listing_date = item.get('listing_date')#上市时间
                 if not listing_date:
-                    start_date = '19841118'
+                    start_date = '19841118'             #如果上市时间没有，则默认是19841118，中国最早股票上市日期
                 else:
                     try:
                         if hasattr(listing_date, 'strftime'):
@@ -229,8 +231,7 @@ def _start_full_update_thread():
                             start_date = s.replace('-', '')
                     except Exception:
                         start_date = '19841118'
-                if not code:
-                    continue
+                
                 task.generate("download_daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
             dl_daily = orm.list_tasks(status="待处理", task_type="download_daily", limit=100000)
             for item in dl_daily:

@@ -1,9 +1,10 @@
 import logging
+import json
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
-
 from .base import BaseTask
-
+from db.db_pool import get_conn, put_conn
+from backend.global_config.utils import _num
 # 数据源：Akshare（尽量兼容不同接口）
 try:
     import akshare as ak
@@ -11,16 +12,9 @@ except Exception:
     ak = None
 
 # QuestDB 连接池
-from db.db_pool import get_conn, put_conn
+
 
 logger = logging.getLogger(__name__)
-
-
-def _num(x) -> Optional[float]:
-    try:
-        return float(x) if x not in (None, "") else None
-    except Exception:
-        return None
 
 def _aggregate_lhb(day: str) -> List[Tuple[str, str, float, float, float, float, float]]:
     """
@@ -80,7 +74,7 @@ def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, 
         return 0
     try:
         cur = conn_local.cursor()
-        ingest_date = datetime.now().date()
+        ingest_date = datetime.now()
         values = [
             (
                 ingest_date,
@@ -201,12 +195,10 @@ class DTBInstTradingTrackerTask(BaseTask):
         if conn is None:
             conn = get_conn()
         try:
-            from stocks.tasks import QtasksOrm
-            
-                    
+    
             #task_params 
             # 处理task_params可能是字符串的情况
-            import json
+            
             if isinstance(self.params_str, str):
                 try:
                     task_params = json.loads(self.params_str)

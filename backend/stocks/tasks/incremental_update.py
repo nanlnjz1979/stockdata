@@ -7,6 +7,7 @@ from .base import BaseTask
 
 # 复用现有的数据处理和写入函数
 from .download_daily import _insert_daily, _num, _int
+from backend.global_config.utils import make_symbol
 
 # 依赖：Akshare 数据源
 try:
@@ -181,18 +182,7 @@ class IncrementalUpdateTask(BaseTask):
                 stock_basic = _get_stock_basic_from_db(code, conn=conn_local)
                 stock_market = stock_basic.get('market', market)
                 
-                # 5. 构建akshare需要的symbol
-                def make_symbol(c: str, m: str) -> str:
-                    m = (m or '').upper()
-                    if m == 'SH':
-                        return 'sh' + c
-                    if m == 'SZ':
-                        return 'sz' + c
-                    if m == 'BJ':
-                        return 'bj' + c
-                    # 默认使用深圳市场
-                    return 'sz' + c
-                
+                # 5. 构建akshare需要的symbol (使用全局导入的make_symbol函数)
                 symbol = make_symbol(code, stock_market)
                 
                 # 6. 获取并写入数据
