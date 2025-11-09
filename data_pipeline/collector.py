@@ -20,6 +20,8 @@ try:
     import akshare as ak
 except Exception:
     ak = None
+
+from backend.global_config.data_fetch import AkshareFetcher
 # 新增：QuestDB PG 连接
 try:
     import psycopg2
@@ -441,14 +443,17 @@ def write_daily_to_db(code: str, market='', conn=None):
     total_saved = 0
     latest_date = None
     symbol = make_symbol(code, market)
+    # 初始化AkshareFetcher
+    fetcher = AkshareFetcher()
+    
     for adj in ['', 'qfq', 'hfq']:
-        if not ak:
+        try:
+            # 使用AkshareFetcher获取日线数据
+            end_date = datetime.now().strftime('%Y%m%d')
+            df = fetcher.fetch_stock_daily(code=code, start_date='19900101', end_date=end_date, adjust=adj)
+        except Exception as e:
+            logging.error(f"获取股票{code}数据失败: {str(e)}")
             df = None
-        else:
-            try:
-                df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date='19900101', end_date=datetime.now().strftime('%Y%m%d'), adjust=adj)
-            except Exception:
-                df = None
         try:
             saved = qdb_insert_daily(code, df, adj, conn=conn)#把akshare读出来的数据保存到数据库中
             total_saved += saved

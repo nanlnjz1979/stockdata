@@ -28,13 +28,29 @@ class DailyDataView(APIView):
         if not symbol:
             return Response({'error': 'symbol 参数必填，如 sh603843'}, status=status.HTTP_400_BAD_REQUEST)
         # 解析出纯数字代码
-        code = re.sub(r'[^0-9]', '', str(symbol))
-        if not code:
-            return Response({'error': 'symbol 无法解析出股票代码'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # 优化：直接处理数字或字符串，避免不必要的正则处理
+            code = str(symbol)
+            if code.isdigit():
+                # 如果已经是纯数字，直接使用
+                pass
+            else:
+                # 否则使用正则提取数字
+                code = re.sub(r'[^0-9]', '', code)
+            
+            if not code:
+                return Response({'error': 'symbol 无法解析出股票代码'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f'处理symbol参数失败: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            start_date = datetime.strptime(start_s, '%Y%m%d').date()
-            end_date = datetime.strptime(end_s, '%Y%m%d').date()
+            # 先解析为datetime对象进行验证
+            start_datetime = datetime.strptime(start_s, '%Y%m%d')
+            end_datetime = datetime.strptime(end_s, '%Y%m%d')
+            # 转换为适合SQL查询的字符串格式 'YYYY-MM-DD'
+            start_date = start_datetime.strftime('%Y-%m-%d')
+            end_date = end_datetime.strftime('%Y-%m-%d')
+            
         except Exception:
             return Response({'error': 'start_date 或 end_date 格式错误，应为 YYYYMMDD'}, status=status.HTTP_400_BAD_REQUEST)
 

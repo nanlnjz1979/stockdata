@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 from backend.global_config import norm_date
 from backend.global_config.utils import _num, _int, make_symbol
+from backend.global_config.data_fetch import AkshareFetcher
 from .base import BaseTask
 
 def _insert_daily(code, df, adj, conn=None):
@@ -75,11 +76,8 @@ def _insert_daily(code, df, adj, conn=None):
             pass
         return 0
 
-# 依赖：Akshare 数据源
-try:
-    import akshare as ak
-except Exception:
-    ak = None
+# 依赖：数据源
+fetcher = AkshareFetcher()
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +117,7 @@ class DownloadDailyTask(BaseTask):
         return "Download_Full_Daily"
     def run(self, conn=None,params_str: str = None) -> bool:
         # 检查依赖
-        if not (ak):
-            logger.error("依赖不可用：akshare 未导入")
-            return False
+
         if params_str:
             self.params_str = params_str
             
@@ -159,13 +155,14 @@ class DownloadDailyTask(BaseTask):
             total_saved = 0
             latest_date: Optional[datetime] = None
             for code in codes:
-                symbol = make_symbol(code, market)
+                
                 adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
                 for adj in adjust_all:
                     try:
-                        df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust=adj)
+                        # 使用AkshareFetcher获取日线数据
+                        df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
                     except Exception as e:
-                        logger.exception("akshare 拉取失败: code=%s, symbol=%s, adj=%s, error=%s", code, symbol, adj, e)
+                        logger.exception("数据获取失败: code=%s, adj=%s, error=%s", code, adj, e)
                         df = None
                     try:
                         saved = _insert_daily(code, df, adj, conn=conn_local)

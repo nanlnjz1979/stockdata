@@ -7,13 +7,12 @@ from .base import BaseTask
 
 # 复用现有的数据处理和写入函数
 from .download_daily import _insert_daily, _num, _int
-from backend.global_config.utils import make_symbol
 from backend.global_config.utils import is_all_holiday
 # 依赖：Akshare 数据源
 try:
-    import akshare as ak
+    from global_config.data_fetch import AkshareFetcher
 except Exception:
-    ak = None
+    AkshareFetcher = None
 
 logger = logging.getLogger(__name__)
 
@@ -236,12 +235,14 @@ class IncrementalUpdateTask(BaseTask):
             # 使用 akshare 获取日线数据
         adjust_all = ['', 'qfq', 'hfq'] if adjust == 'all' else [adjust]
 
+        # 初始化AkshareFetcher
+        fetcher = AkshareFetcher()
+        
         for adj in adjust_all:
             try:
-                # 使用 akshare 获取日线数据
-                df = ak.stock_zh_a_hist(
-                    symbol=code,
-                    period="daily",
+                # 使用AkshareFetcher获取日线数据
+                df = fetcher.fetch_stock_daily(
+                    code=code,
                     start_date=start_date,
                     end_date=end_date,
                     adjust=adj
