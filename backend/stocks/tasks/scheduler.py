@@ -62,15 +62,12 @@ def _parse_schedule_time(val) -> tuple[datetime, int, int]:
     return (timezone.now() + timedelta(minutes=1), S.ONCE, 1)
 
 # 集中存放所有任务对象，便于后续扩展与维护
-
 from stocks.tasks.incremental_update import IncrementalUpdateTask
 from stocks.tasks.DTBInstTradingTracker import DTBInstTradingTrackerTask
-
 tasks = {
     'STOCK_Update': IncrementalUpdateTask,
     'LHB_InstituteTrack': DTBInstTradingTrackerTask,
 }
-
 def run_config_job(config_id) -> bool:
     """django-q 执行函数：根据配置ID触发对应任务。"""
     # 确保config_id是字符串类型，处理可能传入的列表情况
@@ -87,25 +84,21 @@ def run_config_job(config_id) -> bool:
         return False
     conn = None
     try:
-        
         conn = get_conn()
         gc = GlobalConfig(conn)
         cfg = gc.get_schedule_config(config_id) or {}
         params_raw = cfg.get('params')
-
         try:
             params = json.loads(params_raw) if isinstance(params_raw, str) else (params_raw or {})
         except Exception:
             params = {}
-
         task_desc = cfg.get('task_desc') or cfg.get('name') or config_id
 
         # 将任务写入 QuestDB 的 tasks 表，并执行实际逻辑
         orm = QtasksOrm(conn)
-       
         if config_id in tasks:
             task = tasks[config_id](orm)
-            task.generate(task_type=config_id, task_desc=task_desc, params=params)
+            task.generate(task_type=config_id, task_desc=task_desc, params=params,conn=conn)
             return True
         else:
             # 未知配置ID：仅记录日志
@@ -175,7 +168,7 @@ def build_schedules_from_global_config() -> int:
                   f"schedule_type={sch.schedule_type}, "
                   f"next_run={sch.next_run}, "
                   f"repeats={sch.repeats}")
-        #run_config_job("LHB_InstituteTrack") #此语句测试用，正常情况下由定时任务来触发
+        #run_config_job("STOCK_Update") #此语句测试用，正常情况下由定时任务来触发
         return count
     finally:
             try:

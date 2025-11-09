@@ -94,14 +94,14 @@ class DownloadDailyTask(BaseTask):
       - market: 市场标识（可选，'SH'/'SZ'/'BJ'，默认空）
       - start_date: 开始日期（'YYYYMMDD'或'YYYY-MM-DD'）
       - end_date: 结束日期（'YYYYMMDD'或'YYYY-MM-DD'）
-    执行逻辑：为每个股票调用 ak.stock_zh_a_daily 并写入 QuestDB。
+    执行逻辑：为每个股票调用 ak.stock_zh_a_hist 并写入 QuestDB。
     """
 
     def __init__(self, orm):
         # 仅要求传入 orm，其余字段在 generate() 时设置
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
-    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 0) -> str:
+    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 0,conn=None) -> str:
         # 在生成前配置必要字段
         self.task_type = task_type
         self.task_desc = task_desc
@@ -163,7 +163,7 @@ class DownloadDailyTask(BaseTask):
                 adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
                 for adj in adjust_all:
                     try:
-                        df = ak.stock_zh_a_daily(symbol=symbol, start_date=start_date, end_date=end_date, adjust=adj)
+                        df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust=adj)
                     except Exception as e:
                         logger.exception("akshare 拉取失败: code=%s, symbol=%s, adj=%s, error=%s", code, symbol, adj, e)
                         df = None

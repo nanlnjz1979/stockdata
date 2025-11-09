@@ -8,7 +8,7 @@ from .base import BaseTask
 # 复用现有的数据处理和写入函数
 from .download_daily import _insert_daily, _num, _int
 from backend.global_config.utils import make_symbol
-
+from backend.global_config.utils import is_all_holiday
 # 依赖：Akshare 数据源
 try:
     import akshare as ak
@@ -79,6 +79,55 @@ def _get_stock_basic_from_db(code: str, conn=None) -> Dict[str, Any]:
     return {}
 
 
+def _get_all_stocks_last_trade_date(conn=None) -> Dict[str, datetime]:
+    """
+    获取所有股票的最后交易日日期。
+    使用QuestDB的LATEST BY语法高效获取每个股票代码的最新交易日期。
+    
+    Args:
+        conn: 数据库连接对象
+        
+    Returns:
+        Dict[str, datetime]: 股票代码到最后交易日日期的映射字典
+    """
+    result = {}
+    if not conn:
+        return result
+    
+    try:
+        cur = conn.cursor()
+        # 使用QuestDB的LATEST BY语法获取每个股票代码的最新交易日期
+        cur.execute(
+            """
+            SELECT code, trade_date 
+            FROM stock_daily 
+            LATEST BY code
+            """
+        )
+        
+        # 处理查询结果
+        for row in cur.fetchall():
+            if row and len(row) >= 2 and row[0]:
+                code = row[0]
+                trade_date = row[1]
+                
+                # 确保trade_date是datetime对象
+                if isinstance(trade_date, str):
+                    try:
+                        trade_date = datetime.strptime(trade_date, '%Y-%m-%d')
+                    except Exception:
+                        # 解析失败则跳过该记录
+                        continue
+                
+                result[code] = trade_date
+        
+        logger.info(f"成功获取{len(result)}只股票的最后交易日日期")
+    except Exception as e:
+        logger.error(f"获取所有股票最后交易日失败: {e}")
+    
+    return result
+
+
 class IncrementalUpdateTask(BaseTask):
     """
     增量更新任务：根据stock_daily表中已有的数据，只更新最后日期到今天的数据。
@@ -93,20 +142,72 @@ class IncrementalUpdateTask(BaseTask):
     1. 检查指定股票代码在stock_daily表中的最后更新日期
     2. 如果有最后更新日期，则从该日期的次日开始拉取数据
     3. 如果没有历史数据，则从较早日期开始拉取（可配置默认起始日期）
-    4. 使用ak.stock_zh_a_daily获取数据并写入QuestDB
+    4. 使用ak.stock_zh_a_hist获取数据并写入QuestDB
     """
 
     def __init__(self, orm):
         # 仅要求传入orm，其余字段在generate()时设置
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
-    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 1) -> str:
+    def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 1,conn=None) -> str:
         # 在生成前配置必要字段
         self.task_type = task_type
         self.task_desc = task_desc
         self.params_str = self._ensure_json_str(params)
         self.priority = priority
-        return super().generate()
+
+        # 获取所有股票的最后交易日日期
+        
+        last_trade_dates = _get_all_stocks_last_trade_date(conn=conn)
+        
+        # 循环生成每个股票的增量更新任务
+        task_ids = []
+        for code, last_date in last_trade_dates.items():
+            
+            # 计算起始日期（最后交易日的次日）
+            if last_date:
+                start_date = (last_date + timedelta(days=1)).strftime('%Y%m%d')
+            else:
+                # 如果没有历史数据，使用默认起始日期
+                start_date = '20200101'
+
+            # 今天的日期作为结束日期
+            end_date = datetime.now().strftime('%Y%m%d')
+
+            # 如果起始日期已经是今天或未来，跳过
+            if start_date > end_date:
+                logger.info("股票 %s 已是最新数据，跳过生成任务", code)
+                continue
+            
+            # 判断起止日期是否均为非交易日，若是则跳过
+            if is_all_holiday(start_date, end_date):
+                logger.info("股票 %s 的起止日期(%s~%s)均为非交易日，跳过生成任务", code, start_date, end_date)
+                continue
+
+            # 构造任务参数
+            task_params = {
+                'code': code,
+                'start_date': start_date,
+                'end_date': end_date,
+                'adjust': 'all'   # 默认不复权
+            }
+
+           
+        
+            self.task_type = task_type
+            self.task_desc = f"增量更新股票 {code} 从 {start_date} 到 {end_date}",
+            self.priority = priority
+            self.params_str = self._ensure_json_str(task_params)
+            self.priority=priority
+            # 生成任务ID并记录
+            
+            task_id = super().generate()
+            task_ids.append(task_id)
+            
+
+        logger.info("成功生成 %d 个增量更新任务", len(task_ids))
+        return ""
+
 
     def _parse_params(self) -> Dict[str, Any]:
         try:
@@ -118,107 +219,44 @@ class IncrementalUpdateTask(BaseTask):
     def taskID(cls) -> str:
         return f"STOCK_Update"
     def run(self, conn=None) -> bool:
-        # 检查依赖
-        if not ak:
-            logger.error("依赖不可用：akshare 未导入")
-            return False
+        #一次只处理一个任务
         
         params = self._parse_params()
         
-        # 收集目标代码列表
-        codes: List[str] = []
-        code_single = params.get('code')
-        codes_multi = params.get('codes')
-        
-        if isinstance(code_single, str) and code_single.strip():
-            codes.append(code_single.strip())
-        if isinstance(codes_multi, list):
-            for c in codes_multi:
-                if isinstance(c, str) and c.strip():
-                    codes.append(c.strip())
-        
-        # 去重
-        codes = list(dict.fromkeys(codes))
-        if not codes:
-            logger.warning("未提供有效的股票代码（params 需包含 'code' 或 'codes'）")
+        code = params.get('code')
+        start_date = params.get('start_date')
+        end_date = params.get('end_date')
+        adjust = params.get('adjust', 'all')
+
+        if not code or not start_date or not end_date:
+            logger.error("增量更新任务缺少必要参数: %s", params)
             return False
-        
-        # 获取配置的市场和复权类型
-        market = (params.get('market') or '').upper()
-        adjust = (params.get('adjust') or '').lower()
-        
-        # 默认起始日期（如果没有历史数据）
-        default_start_date = params.get('default_start_date', '20200101')
-        
-        conn_local = conn
-        if not conn_local:
-            logger.error("数据库连接失败")
-            return False
-        
-        try:
-            total_saved = 0
-            
-            for code in codes:
-                # 1. 获取最后更新日期
-                last_date = _get_last_update_date(code, conn=conn_local)
-                
-                # 2. 计算起始日期（最后日期的次日）
-                if last_date:
-                    start_date = (last_date + timedelta(days=1)).strftime('%Y%m%d')
-                    logger.info("股票 %s 的最后更新日期为 %s，将从 %s 开始更新", code, last_date.strftime('%Y-%m-%d'), start_date)
-                else:
-                    start_date = default_start_date
-                    logger.info("股票 %s 无历史数据，将从默认日期 %s 开始更新", code, start_date)
-                
-                # 3. 今天的日期作为结束日期
-                end_date = datetime.now().strftime('%Y%m%d')
-                
-                # 如果起始日期已经是今天或未来，跳过
-                if start_date > end_date:
-                    logger.info("股票 %s 已是最新数据，无需更新", code)
+
+      
+            # 使用 akshare 获取日线数据
+        adjust_all = ['', 'qfq', 'hfq'] if adjust == 'all' else [adjust]
+
+        for adj in adjust_all:
+            try:
+                # 使用 akshare 获取日线数据
+                df = ak.stock_zh_a_hist(
+                    symbol=code,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust=adj
+                )
+                if df is None or df.empty:
+                    logger.info("股票 %s 在 %s~%s 无数据，跳过", code, start_date, end_date)
                     continue
-                
-                # 4. 获取市场信息（如果未提供）
-                stock_basic = _get_stock_basic_from_db(code, conn=conn_local)
-                stock_market = stock_basic.get('market', market)
-                
-                # 5. 构建akshare需要的symbol (使用全局导入的make_symbol函数)
-                symbol = make_symbol(code, stock_market)
-                
-                # 6. 获取并写入数据
-                adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
-                for adj in adjust_all:
-                    try:
-                        logger.info("开始获取数据: code=%s, symbol=%s, start=%s, end=%s, adjust=%s", 
-                                    code, symbol, start_date, end_date, adj)
-                        df = ak.stock_zh_a_daily(
-                            symbol=symbol, 
-                            start_date=start_date, 
-                            end_date=end_date, 
-                            adjust=adj
-                        )
-                        
-                        if df is not None and not df.empty:
-                            logger.info("获取成功，共 %d 条记录: code=%s, adjust=%s", 
-                                        len(df), code, adj)
-                            
-                            # 写入数据库
-                            saved = _insert_daily(code, df, adj, conn=conn_local)
-                            total_saved += int(saved or 0)
-                            logger.info("写入完成，保存 %d 条记录: code=%s, adjust=%s", 
-                                        saved, code, adj)
-                        else:
-                            logger.info("无新数据: code=%s, adjust=%s", code, adj)
-                    except Exception as e:
-                        logger.exception("获取或写入失败: code=%s, adjust=%s, error=%s", 
-                                        code, adj, e)
-            
-            logger.info("增量更新任务完成：处理 %d 只股票，共保存 %d 条记录", 
-                        len(codes), total_saved)
-            return total_saved >= 0  # 即使没有新数据也视为成功
-        finally:
-            if conn is None:
-                try:
-                    conn_local.close()
-                except Exception:
-                    pass
+
+                # 写入 QuestDB
+                _insert_daily(code, df, adj, conn=conn)
+                logger.info("增量更新成功: %s [%s ~ %s] adjust=%s", code, start_date, end_date, adj)
+
+            except Exception as e:
+                logger.exception("增量更新失败: %s [%s ~ %s] adjust=%s, error: %s", code, start_date, end_date, adj, e)
+                return False
+
+        return True
+          

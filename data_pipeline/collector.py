@@ -446,7 +446,7 @@ def write_daily_to_db(code: str, market='', conn=None):
             df = None
         else:
             try:
-                df = ak.stock_zh_a_daily(symbol=symbol, start_date='19900101', end_date=datetime.now().strftime('%Y%m%d'), adjust=adj)
+                df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date='19900101', end_date=datetime.now().strftime('%Y%m%d'), adjust=adj)
             except Exception:
                 df = None
         try:

@@ -58,8 +58,9 @@ def _start_queue_update_thread():
     
 
     def worker():
+        # 移除了current_task_id跟踪逻辑
+        
         try:
-
             # 从连接池获取连接
             conn = get_conn()
             orm = QtasksOrm(conn)
@@ -68,6 +69,7 @@ def _start_queue_update_thread():
             #test_task_type = DTBInstTradingTrackerTask.taskID()            #测试代码，有限处理某一种类型
             #pending = orm.list_tasks(status="待处理", task_type = test_task_type ,limit=100000)
             pending = orm.list_tasks(status="待处理", limit=100000)
+
             _queue_ctrl['state']['total_codes'] = len(pending)
             # 按优先级逐个处理
             idx = 0
@@ -86,6 +88,7 @@ def _start_queue_update_thread():
                     break
                 tid = item.get('task_id')
                 taskType = item.get('task_type')
+                # 移除了current_task_id更新
                 
                 try:
                     claimed = orm.claim_task(tid)#变成"处理中"
@@ -116,6 +119,7 @@ def _start_queue_update_thread():
                     t = IncrementalUpdateTask( orm )
                 else:
                     continue
+                
                 t.task_id = item.get('task_id')
                 t.task_type = item.get('task_type')
                 t.task_desc = item.get('task_desc')
@@ -127,9 +131,13 @@ def _start_queue_update_thread():
                 except Exception:
                     ok = False
                 try:
+                    # 显式提交任务状态更新
                     orm.update_task_status(t.task_id, "成功" if ok else "失败")
-                except Exception:
-                    pass
+                    logger.info(f"任务 {t.task_id} 状态已更新为 {'成功' if ok else '失败'}")
+                except Exception as e:
+                    # 记录详细错误信息而不是简单忽略
+                    logger.error(f"更新任务 {t.task_id} 状态失败: {str(e)}")
+                # 移除了current_task_id清空
                 _queue_ctrl['state']['updated_count'] += 1
                 idx += 1
                 time.sleep(0.01)
@@ -139,6 +147,8 @@ def _start_queue_update_thread():
             except Exception as e:
                 logger.error(f"归还连接到连接池失败: {str(e)}")
         finally:
+            # 移除了未完成任务状态重置逻辑
+            
             _queue_ctrl['state']['running'] = False
             _queue_ctrl['state']['stopped'] = _queue_ctrl['stop_event'].is_set()
             _queue_ctrl['state']['ended_at'] = timezone.now()

@@ -153,36 +153,78 @@ class QtasksOrm:
         """
         线程安全的任务状态更新方法
         """
+        # 首先检查并确保连接有效
+        with self._lock:
+            if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+                # 连接不存在或已关闭，重新初始化
+                self._initialize()
+                if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+                    logging.error(f"无法获取有效数据库连接，任务 {task_id} 状态更新失败")
+                    raise RuntimeError("数据库连接不可用")
+        
         with self._get_task_lock(task_id):
-            cur = self._conn.cursor()
+            cur = None
             try:
-                self._conn.autocommit = False
-                # 当置为"处理中"时设置 started_at；当置为"成功/失败/已取消"时设置 ended_at
-                # 获取当前时间
-                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                # 再次检查连接状态
+                if self._conn.closed:
+                    logging.error(f"数据库连接已关闭，任务 {task_id} 状态更新失败")
+                    raise RuntimeError("数据库连接已关闭")
+                
+                cur = self._conn.cursor()
+                # 获取当前时间（使用原生datetime对象而非字符串，避免类型转换错误）
+                now = datetime.datetime.now()
+                
+                # 执行更新SQL
                 cur.execute(
                     """
                     update tasks
-                    set status=%s,
+                    set status = %s,
                         started_at = (case when %s='处理中' and started_at is null then %s else started_at end),
                         ended_at   = (case when %s in ('成功','失败','已取消') then %s else ended_at end)
-                    where task_id=%s
+                    where task_id = %s
                     """,
                     (status, status, now, status, now, task_id),
                 )
+                
+                # 检查是否有行受到影响
+                if cur.rowcount == 0:
+                    logging.warning(f"未找到任务 {task_id} 或更新失败")
+                
+                # 提交事务
                 try:
                     self._conn.commit()
-                except Exception:
-                    pass
+                    logging.debug(f"任务 {task_id} 状态已更新为 {status}")
+                except Exception as commit_error:
+                    logging.error(f"提交事务时出错: {str(commit_error)}")
+                    raise
+                    
             except Exception as e:
+                # 记录详细错误信息
+                error_msg = f"更新任务 {task_id} 状态时出错: {str(e)}"
+                logging.error(error_msg)
+                print(error_msg)
+                
+                # 尝试回滚事务
                 try:
-                    self._conn.rollback()
-                except Exception:
-                    pass
-                raise e
+                    if hasattr(self, '_conn') and self._conn and not self._conn.closed:
+                        self._conn.rollback()
+                except Exception as rollback_error:
+                    logging.error(f"回滚事务时出错: {str(rollback_error)}")
+                    
+                raise
+                
             finally:
+                # 确保关闭游标
+                if cur:
+                    try:
+                        cur.close()
+                    except Exception:
+                        pass
+                    
+                # 恢复自动提交模式
                 try:
-                    self._conn.autocommit = True
+                    if hasattr(self, '_conn') and self._conn and not self._conn.closed:
+                        self._conn.autocommit = True
                 except Exception:
                     pass
 
@@ -388,11 +430,14 @@ class QtasksOrm:
                 except Exception:
                     pass  # 忽略不支持事务的数据库
                 
+                # 获取当前时间（使用Python的datetime对象而非数据库now()函数，确保时区正确）
+                now = datetime.datetime.now()
+                
                 # 乐观锁式认领：仅当当前为待处理时更新为处理中，并记录开始时间
                 cur.execute(
-                    "update tasks set status=%s, started_at=(case when started_at is null then now() else started_at end) "
+                    "update tasks set status=%s, started_at=(case when started_at is null then %s else started_at end) "
                     "where task_id=%s and status=%s", 
-                    ("处理中", task_id, "待处理")
+                    ("处理中", now, task_id, "待处理")
                 )
                 
                 # 获取受影响的行数，确认是否成功更新

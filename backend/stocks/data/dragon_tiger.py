@@ -23,7 +23,7 @@ def _query_dragon_tiger(ingest_date: str = None, query_type: str = None):
         select  code, name, buy_amount, buy_times, 
                sell_amount, sell_times, net_amount, query_type 
         from inst_trading_tracker 
-        where ingest_date = %s
+        where ingest_date in %s
         """
         params = [ingest_date]
         
