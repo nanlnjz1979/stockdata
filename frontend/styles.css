@@ -235,3 +235,127 @@ small.muted { color: var(--muted); }
 .card.loading .loader-overlay { display: flex; }
 .card table { transition: opacity 180ms ease; }
 .card.loading table { opacity: 0.4; }
+
+/* 结果对话框样式 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.dialog {
+  background: var(--surface);
+  border-radius: 8px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text);
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.dialog-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.dialog-content {
+  padding: 20px;
+  overflow-y: auto;
+  max-height: 70vh;
+}
+
+/* 状态标签样式 */
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-complete {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-partial {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-missing {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* 表格样式优化 */
+#integrityResultsTable th,
+#integrityResultsTable td {
+  padding: 12px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+#integrityResultsTable th {
+  background: rgba(0, 0, 0, 0.02);
+  font-weight: 600;
+  color: var(--text);
+}
+
+#integrityResultsTable tr:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* 底部固定导航 */
+.footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}

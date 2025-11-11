@@ -6,7 +6,106 @@
   <title>Stock Data - 前端控制台</title>
   <link rel="stylesheet" href="styles.css" />
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet" />
-  <!-- 移除了ECharts库引用，因为图表功能已移除 -->
+  <style>
+  /* 选项卡样式 */
+  .tabs {
+    display: flex;
+    gap: 1px;
+    background: #e8e8e8;
+    border-radius: 6px 6px 0 0;
+    padding: 2px;
+    margin: -20px -20px 20px -20px;
+  }
+  
+  .tab-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    transition: all 0.3s;
+    border-radius: 4px;
+  }
+  
+  .tab-btn:hover {
+    color: #1890ff;
+    background: #f0f0f0;
+  }
+  
+  .tab-btn.active {
+    background: white;
+    color: #1890ff;
+    font-weight: 500;
+  }
+  
+  /* 选项卡内容样式 */
+  .tab-content {
+    display: none;
+  }
+  
+  .tab-content.active {
+    display: block;
+  }
+  
+  /* 统计卡片样式 */
+  .stat-card {
+    background: #fafafa;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid #e8e8e8;
+  }
+  
+  .stat-number {
+    font-size: 28px;
+    font-weight: 600;
+    color: #1890ff;
+    margin-bottom: 8px;
+  }
+  
+  .stat-label {
+    font-size: 14px;
+    color: #666;
+  }
+  
+  /* 进度条样式 */
+  .progress-container {
+    width: 100%;
+    height: 20px;
+    background: #f0f0f0;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+  }
+  
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #1890ff, #52c41a);
+    transition: width 0.3s ease;
+    border-radius: 10px;
+  }
+  
+  /* 状态文本样式 */
+  .status {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 16px;
+  }
+  
+  /* 按钮样式增强 */
+  .btn.outline {
+    background: white;
+    border: 1px solid #1890ff;
+    color: #1890ff;
+  }
+  
+  .btn.outline:hover {
+    background: #e6f7ff;
+  }
+  </style>
 </head>
 <body>
   <div class="layout">
@@ -126,21 +225,211 @@
         <!-- 数据状态 -->
         <section id="status" class="section">
           <div class="card">
-            <h3>筛选</h3>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <select id="statusMarket" class="input"><option value="">全部市场</option></select>
-              <!-- 移除行业筛选 -->
-              <input id="financeStart" type="date" class="input" />
-              <input id="financeEnd" type="date" class="input" />
-              <button class="btn" id="statusApply">应用筛选</button>
+            <div class="tabs">
+              <button class="tab-btn active" data-tab="data-integrity">数据完整性检查</button>
+              <button class="tab-btn" data-tab="data-format">数据格式标准化</button>
+              <button class="tab-btn" data-tab="outlier-handling">异常值处理</button>
+            </div>
+            
+            <!-- 数据完整性检查 -->
+            <div class="tab-content active" id="data-integrity">
+              <div class="status">数据完整性检查状态</div>
+              <div id="integrityStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+                <div class="stat-card">
+                  <div class="stat-number" id="integrityTotal">0</div>
+                  <div class="stat-label">总记录数</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="integrityMissing">0</div>
+                  <div class="stat-label">缺失记录</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="integrityComplete">0%</div>
+                  <div class="stat-label">完整性百分比</div>
+                </div>
+              </div>
+              <div style="margin-top: 20px;">
+                <button class="btn" id="checkIntegrityBtn">执行完整性检查</button>
+                <div id="integrityProgress" style="margin-top: 16px; display: none;">
+                  <div class="progress-container">
+                    <div class="progress-bar" id="integrityProgressBar" style="width: 0%"></div>
+                  </div>
+                  <div id="integrityProgressText" style="margin-top: 8px; font-size: 14px;">检查中...</div>
+                </div>
+                <!-- 完整性检查结果容器 -->
+                <div id="integrityResultsContainer" style="margin-top: 20px; max-height: 500px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; display: none;">
+                  <style>
+                    .status-badge {
+                      display: inline-block;
+                      padding: 4px 8px;
+                      border-radius: 4px;
+                      font-size: 12px;
+                      font-weight: 500;
+                    }
+                    .status-complete {
+                      background-color: #d4edda;
+                      color: #155724;
+                    }
+                    .status-partial {
+                      background-color: #fff3cd;
+                      color: #856404;
+                    }
+                    .status-missing {
+                      background-color: #f8d7da;
+                      color: #721c24;
+                    }
+                    #integrityResultsTable tr {
+                      border-bottom: 1px solid #e0e0e0;
+                    }
+                    #integrityResultsTable tr:nth-child(even) {
+                      background-color: #f8f9fa;
+                    }
+                    #integrityResultsTable tr:hover {
+                      background-color: #e9ecef;
+                    }
+                    #integrityResultsTable td {
+                      padding: 10px;
+                      text-align: left;
+                    }
+                    #integrityResultsTable td:nth-child(1) { min-width: 100px; }
+                    #integrityResultsTable td:nth-child(2) { min-width: 150px; }
+                    #integrityResultsTable td:nth-child(3) { min-width: 80px; }
+                    #integrityResultsTable td:nth-child(4) { min-width: 100px; }
+                    #integrityResultsTable td:nth-child(5) { min-width: 200px; }
+                    /* 调整容器最大高度，为表头留出空间 */
+                    #integrityResultsContainer {
+                      max-height: 500px;
+                    }
+                  </style>
+                  <div style="padding: 12px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0;">
+                    <h4 style="margin: 0 0 10px 0; font-size: 16px; color: #333;">数据完整性检查结果</h4>
+                    <div style="display: flex; align-items: center; gap: 16px; font-size: 14px;">
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="radio" name="showComplete" value="all" checked style="cursor: pointer;">
+                        显示所有记录
+                      </label>
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="radio" name="showComplete" value="onlyProblem" style="cursor: pointer;">
+                        仅显示问题记录
+                      </label>
+                    </div>
+                  </div>
+                  <div style="padding: 0 12px;">
+                    <div style="overflow-x: auto;">
+                      <!-- 使用单一表格，通过容器实现滚动，保持列宽一致 -->
+                      <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e0e0e0;">
+                        <table class="table" style="width: 100%; border-collapse: collapse;">
+                          <!-- 表头部分，设置sticky定位 -->
+                          <thead>
+                            <tr>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 100px;">股票代码</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 150px;">股票名称</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 80px;">记录数</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 100px;">状态</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 200px;">问题</th>
+                            </tr>
+                          </thead>
+                          <!-- 内容部分 -->
+                          <tbody id="integrityResultsTable">
+                            <!-- 检查结果将通过JavaScript动态填充 -->
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 数据格式标准化 -->
+            <div class="tab-content" id="data-format">
+              <div class="status">数据格式标准化状态</div>
+              <div id="formatStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+                <div class="stat-card">
+                  <div class="stat-number" id="formatTotal">0</div>
+                  <div class="stat-label">总字段数</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="formatStandardized">0</div>
+                  <div class="stat-label">已标准化</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="formatNonStandard">0</div>
+                  <div class="stat-label">非标准格式</div>
+                </div>
+              </div>
+              <div style="margin-top: 20px;">
+                <button class="btn" id="standardizeFormatBtn">执行格式标准化</button>
+                <div id="formatProgress" style="margin-top: 16px; display: none;">
+                  <div class="progress-container">
+                    <div class="progress-bar" id="formatProgressBar" style="width: 0%"></div>
+                  </div>
+                  <div id="formatProgressText" style="margin-top: 8px; font-size: 14px;">标准化中...</div>
+                </div>
+                
+                <!-- 格式标准化检查结果列表 -->
+                <div id="formatResultsContainer" style="margin-top: 20px; max-height: 500px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; display: none;">
+                  <div style="padding: 12px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0;">
+                    <h4 style="margin: 0 0 10px 0; font-size: 16px; color: #333;">格式标准化检查结果</h4>
+                  </div>
+                  <div style="padding: 0 12px;">
+                    <div style="overflow-x: auto;">
+                      <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e0e0e0;">
+                        <table class="table" style="width: 100%; border-collapse: collapse;">
+                          <!-- 表头部分，设置sticky定位 -->
+                          <thead>
+                            <tr>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 100px;">检查时间</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 100px;">股票代码</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 150px;">股票名称</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 80px;">状态</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 400px;">检查详情</th>
+                              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; background: #fafafa; min-width: 200px;">问题</th>
+                            </tr>
+                          </thead>
+                          <!-- 内容部分 -->
+                          <tbody id="formatResultsTable">
+                            <!-- 检查结果将通过JavaScript动态填充 -->
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 异常值处理 -->
+            <div class="tab-content" id="outlier-handling">
+              <div class="status">异常值检测与处理状态</div>
+              <div id="outlierStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+                <div class="stat-card">
+                  <div class="stat-number" id="outlierDetected">0</div>
+                  <div class="stat-label">检测到异常值</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="outlierHandled">0</div>
+                  <div class="stat-label">已处理异常值</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="outlierRemaining">0</div>
+                  <div class="stat-label">待处理异常值</div>
+                </div>
+              </div>
+              <div style="margin-top: 20px;">
+                <button class="btn" id="detectOutliersBtn">检测异常值</button>
+                <button class="btn outline" id="handleOutliersBtn" style="margin-left: 8px;">处理异常值</button>
+                <div id="outlierProgress" style="margin-top: 16px; display: none;">
+                  <div class="progress-container">
+                    <div class="progress-bar" id="outlierProgressBar" style="width: 0%"></div>
+                  </div>
+                  <div id="outlierProgressText" style="margin-top: 8px; font-size: 14px;">处理中...</div>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="grid">
-            <!-- 总览卡片已移除 -->
-            <!-- 市场分布卡片已移除 -->
-            <!-- 移除行业Top卡片 -->
-            <!-- 上市日期范围卡片已移除 -->
-          </div>
+
+
         </section>
 
         <!-- 数据更新 -->
@@ -262,6 +551,32 @@
               <button class="btn outline" id="taskPrev">上一页</button>
               <span id="taskPageInfo" class="muted">第 1 / 1 页</span>
               <button class="btn outline" id="taskNext">下一页</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 分析 -->
+        <section id="analysis" class="section">
+          <div class="card">
+            <div class="tabs">
+              <button class="tab-btn active" data-tab="heatmap">热力图分析</button>
+            </div>
+            
+            <!-- 热力图分析 -->
+            <div class="tab-content active" id="heatmap">
+              <div class="status">股票数据更新状态热力图</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <span>周期：</span>
+                  <select id="heatmapPeriod" class="input">
+                    <option value="7">最近7天</option>
+                    <option value="30">最近30天</option>
+                    <option value="90">最近90天</option>
+                  </select>
+                </div>
+                <button id="heatmapRefresh" class="btn">刷新</button>
+              </div>
+              <div id="heatmapContainer" style="height: 60vh; width: 100%; min-height: 400px; display: block; margin: 0; padding: 0; box-sizing: border-box;"></div>
             </div>
           </div>
         </section>

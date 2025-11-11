@@ -21,6 +21,8 @@ from .import_utils import (
     test_pool_import
 )
 
+# Redis连接池已移除
+
 # 模块版本信息
 __version__ = "1.0.0"
 __all__ = [
@@ -38,7 +40,8 @@ __all__ = [
     'check_pool_availability',
     'safe_get_conn',
     'safe_put_conn',
-    'test_pool_import'
+    'test_pool_import',
+    # Redis连接池已移除
 ]
 
 # 初始化时添加项目路径

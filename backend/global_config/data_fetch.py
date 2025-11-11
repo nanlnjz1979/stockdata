@@ -263,7 +263,73 @@ def get_stock_daily(code: str, start_date: str, end_date: str, adjust: str = "qf
     """
     fetcher = DataFetchFactory.get_fetcher(**kwargs)
     return fetcher.fetch_stock_daily(code, start_date, end_date, adjust)
+    
+from datetime import datetime, date as date_type
+from typing import Union
+from backend.global_config.file_config import FileConfig
 
+def is_trading_day(date: Union[str, datetime, date_type]) -> bool:
+    """
+    检查指定日期是否为交易日
+    
+    Args:
+        date: 待检查的日期，格式为'YYYY-MM-DD'或datetime对象
+        
+    Returns:
+        bool: 是否为交易日
+        
+    Raises:
+        DataFetchError: 数据获取失败
+    """
+    if isinstance(date, datetime):
+        date_str = date.strftime("%Y-%m-%d")
+        date_obj = date.date()
+    elif isinstance(date, date_type):
+        date_str = date.strftime("%Y-%m-%d")
+        date_obj = date
+    else:
+        date_str = date
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise DataFetchError(f"无效的日期格式: {date_str}")
+    
+    # 首先检查是否为周末
+    if date_obj.weekday() >= 5:  # 0=周一, 4=周五, 5=周六, 6=周日
+        return False
+    
+    # 先从FileConfig获取交易日历
+    trading_dates = FileConfig.get('trading_dates', None)
+    
+    if trading_dates is not None:
+        # 如果配置中有交易日历，直接使用
+        logger.debug(f"从配置获取交易日历，检查日期: {date_str}")
+        return date_str in trading_dates
+    
+    # 如果配置中没有交易日历，使用akshare获取
+    try:
+        import akshare as ak
+        df = ak.tool_trade_date_hist_sina()
+        if df is None or df.empty:
+            raise DataFetchError("akshare返回空数据")
+
+        # 假设返回的DataFrame中日期列名为'trade_date'，格式为'YYYY-MM-DD'
+        trading_dates = set(df.iloc[:, 0].astype(str).tolist())
+        
+        # 将获取到的交易日历保存到FileConfig中
+        FileConfig.set('trading_dates', list(trading_dates))
+        logger.info(f"已将交易日历保存到配置中")
+        
+        logger.debug(f"通过akshare获取交易日历，检查日期: {date_str}")
+        return date_str in trading_dates
+    except ImportError:
+        logger.warning("akshare库未安装，仅检查是否为工作日")
+        # 如果akshare不可用，仅返回是否为工作日（周一至周五）
+        return date_obj.weekday() < 5
+    except Exception as e:
+        logger.error(f"通过akshare获取交易日历失败: {str(e)}")
+        # 出错时回退到工作日检查
+        return date_obj.weekday() < 5
 
 # 模块初始化时的设置
 __all__ = [
@@ -272,5 +338,6 @@ __all__ = [
     'DataFetchFactory',
     'DataFetchError',
     'get_stock_basic_info',
-    'get_stock_daily'
+    'get_stock_daily',
+    'is_trading_day'
 ]

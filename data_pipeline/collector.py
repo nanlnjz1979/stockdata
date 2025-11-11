@@ -75,12 +75,12 @@ def qdb_ensure_tables(conn=None):
             company_name string,     --公司全称
             market symbol,           --市场类型（如SH、SZ）
             listing_date date        --上市日期
-          );
+          ) ;
         """)
 
         cur.execute("""
           create table if not exists stock_daily (
-            code symbol,           --股票代码
+            code symbol index,     --股票代码
             trade_date timestamp,  --交易日期时间戳
             adjust_type symbol,    --复权类型
             open double,           --开盘价
@@ -91,7 +91,7 @@ def qdb_ensure_tables(conn=None):
             amount double,         --成交额
             turnover double,       --换手率
             outstanding_share double --流通股本
-          ) TIMESTAMP(trade_date) PARTITION BY DAY; --按交易日按天分区
+          ) TIMESTAMP(trade_date) PARTITION BY DAY  DEDUP UPSERT KEYS(code, trade_date, adjust_type); --按交易日按天分区
         """)
         #目前就用questdb做存储，然后做个检查程序，如果某一天的任务状态status都变成已完成，就把这个分区删掉，分区通过创建时间分区
         cur.execute("""

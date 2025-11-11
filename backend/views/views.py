@@ -293,6 +293,9 @@ class UpdateRunView(APIView):
 # 从QueueUpdateTask导入队列更新视图
 from stocks.tasks.QueueUpdateTask import QueueUpdateStartView
 
+
+
+
 class UpdateStatusView(APIView):
     # 静态数据库连接
     _static_conn = None
@@ -467,99 +470,11 @@ class QueueUpdateStopView(APIView):
 
 class DataStatusView(APIView):
     def get(self, request):
-        # 读取筛选参数
-        market = request.query_params.get('market')
-
         import os
         import psycopg2
-        # 导入连接池
-        try:
-            from db.db_pool import get_conn, put_conn
-        except Exception:
-            get_conn, put_conn = None, None
-
-        host = os.getenv('QDB_HOST', 'localhost')
-        port = int(os.getenv('QDB_PORT', '8812'))
-        user = os.getenv('QDB_USER', 'admin')
-        password = os.getenv('QDB_PASS', 'quest')
-        dbname = os.getenv('QDB_DB', 'qdb')
 
         trends = []
-        conn = None
-
-        # 本地函数：根据market构造代码前缀过滤
-        def market_prefixes(m):
-            m = (m or '').upper()
-            if m == 'SH':
-                return ['600', '601', '603', '605', '688']
-            if m == 'SZ':
-                return ['000', '001', '002', '300', '301']
-            if m == 'BJ':
-                return ['430', '83', '87']
-            return []
-
-        # 本地函数：根据代码推断市场
-        def infer_market(code):
-            s = str(code or '').strip()
-            if s.startswith(('600', '601', '603', '605', '688')):
-                return 'SH'
-            if s.startswith(('000', '001', '002', '300', '301')):
-                return 'SZ'
-            if s.startswith(('430', '83', '87')):
-                return 'BJ'
-            return 'SZ'
-
-        try:
-            # 尝试使用连接池获取连接
-            if get_conn:
-                try:
-                    conn = get_conn()
-                except Exception:
-                    # 连接池失败，尝试直接连接
-                    conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
-            else:
-                # 如果连接池不可用，直接创建连接
-                conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname, connect_timeout=2)
-            
-            conn.autocommit = True
-            cur = conn.cursor()
-            # 基础股票筛选
-            where = []
-            params = []
-            # market过滤转化为code前缀过滤
-            if market:
-                prefs = market_prefixes(market)
-                if prefs:
-                    ors = []
-                    for p in prefs:
-                        params.append(p + '%')
-                        ors.append(f"code like ${len(params)}")
-                    where.append('(' + ' or '.join(ors) + ')')
-            where_sql = (' where ' + ' and '.join(where)) if where else ''
-
-            # 总览和市场分布功能已移除
-
-            # 上市日期范围功能已移除
-
-        except Exception:
-            pass
-        finally:
-            # 归还连接到连接池或关闭连接
-            if conn:
-                try:
-                    if put_conn:
-                        put_conn(conn)
-                    else:
-                        conn.close()
-                except Exception:
-                    pass
 
         return Response({
-            'backup': {
-                'db_path': 'QuestDB',
-                'size_bytes': None,
-                'last_modified': None,
-                'health_score': 100,
-            },
             'trends': trends,
         })

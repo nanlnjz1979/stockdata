@@ -252,6 +252,7 @@ class IncrementalUpdateTask(BaseTask):
                     continue
 
                 # 写入 QuestDB
+                
                 _insert_daily(code, df, adj, conn=conn)
                 logger.info("增量更新成功: %s [%s ~ %s] adjust=%s", code, start_date, end_date, adj)
 
