@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateRunView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdateStartView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
+from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateFullView, UpdatePauseView, UpdateResumeView, UpdateStopView, TaskListView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView
+from views.sw_industry_api import SWIndustryDataAPI, SWIndustryClassificationAPI
 from views.integrity_views import DataIntegrityCheckView, FullIntegrityCheckView, StockFormatStandardizationView
 from views.taskview import TaskMonitorView, QTaskListView, ScheduleListView, RecentTasksView
 from .data.daily import DailyDataView
@@ -19,12 +20,11 @@ urlpatterns = [
     # 实时行情API已移除
     path('stocks/status', DataStatusView.as_view()),
     path('stocks/update/status', UpdateStatusView.as_view()),
-    path('stocks/update/run', UpdateRunView.as_view()),
+    # UpdateRunView已移除
     path('stocks/update/full', UpdateFullView.as_view()),
     path('stocks/update/pause', UpdatePauseView.as_view()),
     path('stocks/update/resume', UpdateResumeView.as_view()),
     path('stocks/update/stop', UpdateStopView.as_view()),
-    path('stocks/update/queue/start', QueueUpdateStartView.as_view()),
     path('stocks/update/queue/pause', QueueUpdatePauseView.as_view()),
     path('stocks/update/queue/resume', QueueUpdateResumeView.as_view()),
     path('stocks/update/queue/stop', QueueUpdateStopView.as_view()),
@@ -52,4 +52,7 @@ urlpatterns = [
     path('stocks/data/dragon_tiger', DragonTigerView.as_view()),# 龙虎榜列表数据
     path('stocks/data/heatmap', HeatmapDataView.as_view()),# 热力图数据
     # 龙虎榜详细数据API已移除
+    # 申万行业数据API
+    path('stocks/sw/generate', SWIndustryDataAPI.as_view()),# 生成申万行业分类数据
+    path('stocks/sw/classification', SWIndustryClassificationAPI.as_view()),# 查询申万行业分类数据
 ]

@@ -22,6 +22,397 @@ const API_BASE = 'http://127.0.0.1:8000';
   apply();
 })();
 
+// 申万数据功能实现
+(function initSwData() {
+  console.log('初始化申万数据功能');
+  
+  // 选项卡切换逻辑
+  const swTabs = document.querySelectorAll('#sw_data .tab-btn');
+  swTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabId = tab.getAttribute('data-tab');
+      
+      // 移除所有选项卡和内容的active类
+      swTabs.forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('#sw_data .tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      
+      // 添加当前选项卡和内容的active类
+      tab.classList.add('active');
+      const contentEl = document.getElementById(tabId);
+      if (contentEl) {
+        contentEl.classList.add('active');
+        console.log(`切换到选项卡: ${tabId}`);
+      } else {
+        console.error(`未找到选项卡内容: ${tabId}`);
+      }
+    });
+  });
+  
+  // 生成申万分类数据
+  qs('#generateSwClassification')?.addEventListener('click', async () => {
+    try {
+      const resultEl = qs('#swClassificationResult');
+      resultEl.textContent = '正在生成分类数据...';
+      
+      const response = await fetch(`${API_BASE}/api/stocks/sw/generate`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      resultEl.textContent = `生成完成！${data.message || '已成功生成申万分类数据'}`;
+    } catch (error) {
+      console.error('生成分类数据失败:', error);
+      qs('#swClassificationResult').textContent = `生成失败: ${error.message}`;
+    }
+  });
+  
+  // 查询申万分类数据
+  qs('#querySwClassification')?.addEventListener('click', async () => {
+    try {
+      const resultEl = qs('#swClassificationResult');
+      resultEl.textContent = '正在查询分类数据...';
+      
+      const response = await fetch(`${API_BASE}/api/stocks/sw/classification`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const responseData = await response.json();
+      // 处理数据并渲染树形结构
+      if (responseData && Array.isArray(responseData.data)) {
+        console.log('查询到分类数据:', responseData.data.length, '条');
+        // 创建树形结构
+        const treeData = buildSwClassificationTree(responseData.data);
+          
+          // 渲染树形结构
+          resultEl.innerHTML = renderSwClassificationTree(treeData);
+          
+          // 添加树形节点的展开/折叠功能
+          addTreeToggleFunctionality();
+      } else {
+        resultEl.textContent = JSON.stringify(responseData, null, 2);
+      }
+    } catch (error) {
+      console.error('查询分类数据失败:', error);
+      qs('#swClassificationResult').textContent = `查询失败: ${error.message}`;
+    }
+  });
+
+  // 构建申万分类树结构
+  function buildSwClassificationTree(data) {
+    // 健壮性检查
+    if (!Array.isArray(data) || data.length === 0) {
+      console.warn('无效的分类数据:', data);
+      return [];
+    }
+    
+    const root = [];
+    const nodeMap = {};
+    
+    // 首先创建所有节点的映射
+    data.forEach(item => {
+      const node = {
+        id: item.industry_code,
+        name: item.industry_name,
+        children: [],
+        data: item // 保存原始数据
+      };
+      nodeMap[node.id] = node;
+      
+      // 如果没有上级行业或上级行业为空字符串，认为是一级节点
+      if (!item.parent_industry || item.parent_industry === '') {
+        root.push(node);
+      }
+    });
+    
+    // 然后构建父子关系
+    data.forEach(item => {
+      const parentName = item.parent_industry;
+      if (parentName && parentName !== '') {
+        // 查找父节点（通过行业名称匹配）
+        const parentNode = Object.values(nodeMap).find(node => node.name === parentName);
+        const currentNode = nodeMap[item.industry_code];
+        
+        if (parentNode && currentNode) {
+          parentNode.children.push(currentNode);
+        }
+      }
+    });
+    
+    return root;
+  }
+  
+  // 渲染申万分类树结构
+  function renderSwClassificationTree(treeData) {
+    const treeContainer = document.createElement('div');
+    treeContainer.className = 'sw-classification-tree';
+    
+    // 处理空数据情况
+    if (!treeData || treeData.length === 0) {
+      treeContainer.innerHTML = '<div class="tree-empty">暂无分类数据</div>';
+      return treeContainer.outerHTML;
+    }
+    
+    function renderNode(node, level = 0) {
+      const nodeEl = document.createElement('div');
+      nodeEl.className = `tree-node level-${level}`;
+      nodeEl.style.marginLeft = `${level * 24}px`;
+      
+      // 创建节点内容
+      const contentEl = document.createElement('div');
+      contentEl.className = 'tree-node-content';
+      
+      // 如果有子节点，添加展开/折叠按钮
+      if (node.children && node.children.length > 0) {
+        const toggleBtn = document.createElement('span');
+        toggleBtn.className = 'tree-toggle-btn';
+        toggleBtn.innerHTML = '▼';
+        toggleBtn.setAttribute('data-level', level);
+        contentEl.appendChild(toggleBtn);
+      } else {
+        // 没有子节点时添加占位符
+        const placeholder = document.createElement('span');
+        placeholder.style.display = 'inline-block';
+        placeholder.style.width = '20px';
+        contentEl.appendChild(placeholder);
+      }
+      
+      // 添加节点文本和统计信息
+      const textEl = document.createElement('span');
+      textEl.className = 'tree-node-text';
+      
+      // 构建显示文本，包含行业名称和所有统计信息
+      let nodeText = node.name;
+      
+      // 行业代码
+      nodeText += ` <span class="node-metric">${node.id}</span>`;
+      
+      // 计算下一级分类个数
+      const subCategoryCount = node.children ? node.children.length : 0;
+      if (subCategoryCount > 0) {
+        nodeText += ` <span class="sub-category-count">(子分类:${subCategoryCount})</span>`;
+      }
+      
+      // 统计信息
+      const stats = [];
+      
+      // 显示成份个数
+      if (node.data.component_count) {
+        stats.push(`成份: ${node.data.component_count}`);
+      }
+      
+      // 显示TTM市盈率
+      const pe = node.data.ttm_pe;
+      if (pe) {
+        const peClass = parseFloat(pe) > 0 && parseFloat(pe) < 30 ? 'positive' : 'negative';
+        stats.push(`市盈率: <span class="node-metric ${peClass}">${pe}</span>`);
+      }
+      
+      // 显示市净率
+      if (node.data.pb_ratio) {
+        stats.push(`市净率: ${node.data.pb_ratio}`);
+      }
+      
+      // 显示股息率
+      const dividend = node.data.static_dividend_yield;
+      if (dividend) {
+        const dividendClass = parseFloat(dividend) > 2 ? 'positive' : '';
+        stats.push(`股息率: <span class="node-metric ${dividendClass}">${dividend}%</span>`);
+      }
+      
+      // 将统计信息添加到文本中
+      if (stats.length > 0) {
+        nodeText += ` ${stats.join(' ')}`;
+      }
+      
+      textEl.innerHTML = nodeText;
+      contentEl.appendChild(textEl);
+      nodeEl.appendChild(contentEl);
+      // 移除单独的infoEl元素
+      
+      // 渲染子节点
+      if (node.children && node.children.length > 0) {
+        const childrenEl = document.createElement('div');
+        childrenEl.className = 'tree-children';
+        
+        // 对子节点进行排序
+        const sortedChildren = [...node.children].sort((a, b) => {
+          // 优先按成份个数排序
+          const countA = a.data.component_count || 0;
+          const countB = b.data.component_count || 0;
+          return countB - countA;
+        });
+        
+        sortedChildren.forEach(child => {
+          childrenEl.appendChild(renderNode(child, level + 1));
+        });
+        
+        nodeEl.appendChild(childrenEl);
+      }
+      
+      return nodeEl;
+    }
+    
+    // 渲染所有根节点，并按成份个数排序
+    const sortedRootNodes = [...treeData].sort((a, b) => {
+      const countA = a.data.component_count || 0;
+      const countB = b.data.component_count || 0;
+      return countB - countA;
+    });
+    
+    sortedRootNodes.forEach(node => {
+      treeContainer.appendChild(renderNode(node));
+    });
+    
+    return treeContainer.outerHTML;
+  }
+  
+  // 添加树形结构展开/折叠功能
+  function addTreeToggleFunctionality() {
+    const toggleButtons = document.querySelectorAll('.tree-toggle-btn');
+    
+    // 添加展开/折叠按钮事件
+    toggleButtons.forEach(btn => {
+      btn.addEventListener('click', function(event) {
+        event.stopPropagation(); // 防止事件冒泡
+        
+        const nodeEl = this.closest('.tree-node');
+        const childrenEl = nodeEl.querySelector('.tree-children');
+        
+        if (childrenEl) {
+          const isExpanded = childrenEl.style.display !== 'none';
+          
+          if (isExpanded) {
+            // 折叠节点
+            childrenEl.style.display = 'none';
+            this.innerHTML = '▶';
+            this.setAttribute('aria-expanded', 'false');
+          } else {
+            // 展开节点
+            childrenEl.style.display = 'block';
+            this.innerHTML = '▼';
+            this.setAttribute('aria-expanded', 'true');
+          }
+          
+          // 添加动画效果
+          childrenEl.style.transition = 'all 0.3s ease';
+        }
+      });
+    });
+    
+    // 添加节点点击事件，可点击节点文本展开/折叠
+    document.querySelectorAll('.tree-node-content').forEach(content => {
+      content.addEventListener('click', function(event) {
+        // 如果点击的是展开/折叠按钮，不处理
+        if (event.target.closest('.tree-toggle-btn')) {
+          return;
+        }
+        
+        const toggleBtn = this.querySelector('.tree-toggle-btn');
+        if (toggleBtn) {
+          toggleBtn.click(); // 触发展开/折叠按钮的点击事件
+        }
+      });
+    });
+    
+    // 添加键盘导航支持
+    toggleButtons.forEach(btn => {
+      btn.setAttribute('tabindex', '0');
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('aria-label', '展开/折叠节点');
+      
+      btn.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          this.click();
+        }
+      });
+    });
+  }
+  
+
+  
+  // 全量更新申万数据
+  qs('#swFullUpdate')?.addEventListener('click', async () => {
+    try {
+      const statusEl = qs('#swUpdateStatus');
+      const progressEl = qs('#swUpdateProgress');
+      
+      statusEl.textContent = '开始全量更新...';
+      progressEl.style.width = '0%';
+      
+      const response = await fetch(`${API_BASE}/api/stocks/sw/update/full`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      statusEl.textContent = `更新任务已启动: ${data.message || ''}`;
+      
+      // 模拟进度更新
+      simulateProgress(progressEl, statusEl, '全量更新');
+    } catch (error) {
+      console.error('全量更新失败:', error);
+      qs('#swUpdateStatus').textContent = `更新失败: ${error.message}`;
+    }
+  });
+  
+  // 增量更新申万数据
+  qs('#swIncrementUpdate')?.addEventListener('click', async () => {
+    try {
+      const statusEl = qs('#swUpdateStatus');
+      const progressEl = qs('#swUpdateProgress');
+      
+      statusEl.textContent = '开始增量更新...';
+      progressEl.style.width = '0%';
+      
+      const response = await fetch(`${API_BASE}/api/stocks/sw/update/increment`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      statusEl.textContent = `更新任务已启动: ${data.message || ''}`;
+      
+      // 模拟进度更新
+      simulateProgress(progressEl, statusEl, '增量更新');
+    } catch (error) {
+      console.error('增量更新失败:', error);
+      qs('#swUpdateStatus').textContent = `更新失败: ${error.message}`;
+    }
+  });
+  
+  // 模拟进度更新
+  function simulateProgress(progressEl, statusEl, type) {
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 10;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        statusEl.textContent = `${type}完成`;
+      } else {
+        statusEl.textContent = `${type}中... ${Math.round(progress)}%`;
+      }
+      progressEl.style.width = `${progress}%`;
+    }, 500);
+  }
+})();
+
+
 // 热力图分析模块
 (function initHeatmap() {
   let heatmapChart = null;
@@ -823,7 +1214,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   function showTab(target){
     qsa('.section').forEach(s => s.classList.toggle('active', s.id === target));
     tabs.forEach(t => t.classList.toggle('active', t.dataset.target === target));
-    const titleMap = { query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', 'task-monitor': '任务状态', tasks: '计划任务', config: '参数配置' };
+    const titleMap = { query: '查询', analysis: '分析', profile: '个人中心', status: '数据状态', update: '数据更新', 'task-monitor': '任务状态', tasks: '计划任务', config: '参数配置', sw_data: '申万数据' };
     const title = titleMap[target] || '模块';
     qs('#pageTitle').textContent = title;
   }
@@ -2540,8 +2931,6 @@ const API_BASE = 'http://127.0.0.1:8000';
   const financeEl = document.getElementById('updateFinanceCount');
   const latestFinanceEl = document.getElementById('updateLatestFinance');
   const latestFollowEl = document.getElementById('updateLatestFollow');
-  const runBtn = document.getElementById('updateRun');
-  const runStatusEl = document.getElementById('updateRunStatus');
   const fullBtn = document.getElementById('updateFull');
   const fullStatusEl = document.getElementById('updateFullStatus');
   const pauseBtn = document.getElementById('updatePause');
@@ -2574,18 +2963,6 @@ const API_BASE = 'http://127.0.0.1:8000';
       qdbEl.textContent = '异常';
       paramsEl.textContent = String(err);
     });
-
-  runBtn?.addEventListener('click', () => {
-    runStatusEl.textContent = '增量更新触发中...';
-    fetch(`${API_BASE}/api/stocks/update/run`, { method: 'POST' })
-      .then(r => r.json())
-      .then(d => {
-        runStatusEl.textContent = `增量更新 started=${d.started} at ${d.started_at || ''}`;
-      })
-      .catch(err => {
-        runStatusEl.textContent = `失败：${err}`;
-      });
-  });
 
   fullBtn?.addEventListener('click', () => {
     fullStatusEl.textContent = '触发全量中...';
@@ -2732,7 +3109,7 @@ const API_BASE = 'http://127.0.0.1:8000';
     } catch(e) {}
   }
 
-  if (runBtn) runBtn.addEventListener('click', () => {});
+  // 已删除增量更新按钮
   if (updateTab) updateTab.addEventListener('click', loadStatus);
   loadStatus();
   setInterval(pollProgress, 3000);
@@ -2790,8 +3167,11 @@ const API_BASE = 'http://127.0.0.1:8000';
     });
   }
 
-  async function reload(){
-    try {
+  async function reload(){    try {
+      // 显示加载状态
+      const loadingEl = document.getElementById('taskLoading');
+      if (loadingEl) loadingEl.style.display = 'flex';
+      
       const res = await fetch(buildUrl());
       const data = await res.json();
       render(data.items || []);
@@ -2811,6 +3191,10 @@ const API_BASE = 'http://127.0.0.1:8000';
       // 状态下拉已固定填充，无需依赖后端；如需要可同步后端返回但不覆盖
     } catch(e) {
       tbody.innerHTML = '<tr><td colspan="8">加载失败</td></tr>';
+    } finally {
+      // 隐藏加载状态
+      const loadingEl = document.getElementById('taskLoading');
+      if (loadingEl) loadingEl.style.display = 'none';
     }
   }
 

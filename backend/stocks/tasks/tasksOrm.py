@@ -24,7 +24,7 @@ class QtasksOrm:
       - insert_task(task_id, task_type, task_desc, task_params, priority, status)
       - update_task_status(task_id, status)
       - get_task(task_id)
-      - list_tasks(status=None, task_type=None, limit=100, offset=0)
+      - list_tasks(status=None, task_type=None, limit=10000, offset=0)
       - create_task(...)
       - update_task(...)
       - delete_task(task_id)
@@ -250,7 +250,7 @@ class QtasksOrm:
             row = cur.fetchone()
             return self._row_to_dict(cur, row) if row else None
 
-    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 100, offset: int = 0):
+    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 10000):
         
         if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
             # 连接不存在或已关闭，重新初始化
@@ -271,9 +271,9 @@ class QtasksOrm:
         where_sql = (" where " + " and ".join(where)) if where else ""
         # QuestDB 不支持 OFFSET，移除 offset，仅保留 limit
         cur.execute(
-            f"select task_id, task_type, task_desc, task_params, priority, status from tasks{where_sql} order by priority desc limit %s",
-            (*params, int(limit or 100)),
-        )
+                f"select task_id, task_type, task_desc, task_params, priority, status, started_at from tasks{where_sql} order by priority desc, started_at desc limit %s",
+                (*params, int(limit or 100)),
+            )
         rows = cur.fetchall() or []
         return [self._row_to_dict(cur, r) for r in rows]
 
@@ -392,7 +392,7 @@ class QtasksOrm:
                 params.append(task_type)
             where_sql = " and ".join(where)
             cur.execute(
-                f"select task_id, task_type, task_desc, task_params, priority, status from tasks where {where_sql} order by priority desc limit 1",
+                f"select task_id, task_type, task_desc, task_params, priority, status, started_at from tasks where {where_sql} order by priority desc, started_at asc limit 1",
                 tuple(params),
             )
             row = cur.fetchone()

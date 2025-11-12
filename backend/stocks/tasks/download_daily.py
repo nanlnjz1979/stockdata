@@ -1,11 +1,29 @@
 import json
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from backend.global_config import norm_date
 from backend.global_config.utils import _num, _int, make_symbol
 from backend.global_config.data_fetch import AkshareFetcher
 from .base import BaseTask
+
+def _insert_daily_thread(code, df, adj, conn=None, result_dict=None):
+    """在线程中执行数据插入操作并更新结果字典"""
+    try:
+        saved_count = _insert_daily(code, df, adj, conn)
+        if result_dict is not None:
+            with result_dict.get('lock', threading.Lock()):
+                result_dict['total_saved'] += saved_count
+                if saved_count > 0:
+                    result_dict['success_codes'].append(code)
+        return saved_count
+    except Exception as e:
+        logger.exception("线程数据保存失败: code=%s, adj=%s, error=%s", code, adj, e)
+        if result_dict is not None:
+            with result_dict.get('lock', threading.Lock()):
+                result_dict['failed_codes'].append((code, str(e)))
+        return 0
 
 def _insert_daily(code, df, adj, conn=None):
     if df is None or getattr(df, 'empty', True):
@@ -117,13 +135,11 @@ class DownloadDailyTask(BaseTask):
         return "Download_Full_Daily"
     def run(self, conn=None,params_str: str = None) -> bool:
         # 检查依赖
-
         if params_str:
             self.params_str = params_str
             
         params = self._parse_params()
         market = (params.get('market') or '').upper()
-        
         
         adjust = (params.get('adjust') or '').lower()
         start_date = norm_date(params.get('start_date')) or '19900101'
@@ -145,31 +161,58 @@ class DownloadDailyTask(BaseTask):
             logger.warning("未提供有效的股票代码（params 需包含 'code' 或 'codes'）")
             return False
 
-        # make_symbol已从backend.global_config.utils导入
-
         conn_local = conn 
         if not conn_local:
             logger.error("QuestDB 连接失败")
             return False
+        
         try:
-            total_saved = 0
-            latest_date: Optional[datetime] = None
+            # 用于线程间共享结果的数据结构
+            result_dict = {
+                'total_saved': 0,
+                'success_codes': [],
+                'failed_codes': [],
+                'lock': threading.Lock()
+            }
+            
+            # 存储所有线程
+            threads = []
+            
             for code in codes:
-                
                 adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
                 for adj in adjust_all:
                     try:
-                        # 使用AkshareFetcher获取日线数据
+                        # 先获取数据
                         df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
+                        
+                        # 创建并启动线程来保存数据
+                        t = threading.Thread(
+                            target=_insert_daily_thread,
+                            args=(code, df, adj, conn_local, result_dict),
+                            name=f"save_{code}_{adj}"
+                        )
+                        threads.append(t)
+                        t.start()
                     except Exception as e:
                         logger.exception("数据获取失败: code=%s, adj=%s, error=%s", code, adj, e)
-                        df = None
-                    try:
-                        saved = _insert_daily(code, df, adj, conn=conn_local)
-                        total_saved += int(saved or 0)
-                    except Exception as e:
-                        logger.exception("写入失败: code=%s, adj=%s, error=%s", code, adj, e)
-            logger.info("任务完成：codes=%s, total_saved=%s", codes, total_saved)
+                        with result_dict['lock']:
+                            result_dict['failed_codes'].append((code, f"获取数据失败: {str(e)}"))
+            
+            # 等待所有线程完成
+            for t in threads:
+                t.join()
+            
+            # 记录结果
+            total_saved = result_dict['total_saved']
+            success_count = len(result_dict['success_codes'])
+            failed_count = len(result_dict['failed_codes'])
+            
+            logger.info("任务完成：codes=%s, total_saved=%s, success_codes=%d, failed_codes=%d", 
+                      codes, total_saved, success_count, failed_count)
+            
+            if failed_count > 0:
+                logger.warning("部分代码保存失败: %s", result_dict['failed_codes'])
+            
             return total_saved > 0
         finally:
             if conn is None:

@@ -136,6 +136,20 @@ def qdb_ensure_tables(conn=None):
           );
         """)
 
+        # -- 创建行业数据表
+        cur.execute("""
+            create table if not exists  sw_industry_data (
+            industry_code SYMBOL INDEX,        -- 行业代码，使用SYMBOL类型并创建索引
+            industry_name SYMBOL INDEX,        -- 行业名称，使用SYMBOL类型并创建索引
+            parent_industry SYMBOL INDEX,      -- 上级行业，使用SYMBOL类型并创建索引
+            component_count INT,               -- 成份个数
+            static_pe DOUBLE,                  -- 静态市盈率
+            ttm_pe DOUBLE,                    -- TTM(滚动)市盈率
+            pb_ratio DOUBLE,                  -- 市净率
+            static_dividend_yield DOUBLE,     -- 静态股息率
+            timestamp TIMESTAMP               -- 时间戳，QuestDB推荐使用
+            ) TIMESTAMP(timestamp) PARTITION BY MONTH;
+        """)
         if conn is not qdb_connect:
             pass
         return True

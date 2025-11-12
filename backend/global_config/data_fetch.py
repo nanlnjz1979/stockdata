@@ -211,6 +211,69 @@ class AkshareFetcher(DataFetcher):
                 return df
         except Exception as e:
             raise DataFetchError(f"获取股票{code}日K线数据失败: {str(e)}")
+    
+    def fetch_sw_industry_first_info(self) -> pd.DataFrame:
+        """
+        获取申万一级行业数据
+        
+        Returns:
+            pd.DataFrame: 申万一级行业数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.info("开始抓取申万一级行业数据")
+            df = self._retry_wrapper(self.ak.sw_index_first_info)
+            logger.info(f"成功抓取申万一级行业数据，共{len(df)}条")
+            return df
+        except Exception as e:
+            raise DataFetchError(f"获取申万一级行业数据失败: {str(e)}")
+    
+    def fetch_sw_industry_second_info(self) -> pd.DataFrame:
+        """
+        获取申万二级行业数据
+        
+        Returns:
+            pd.DataFrame: 申万二级行业数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.info("开始抓取申万二级行业数据")
+            df = self._retry_wrapper(self.ak.sw_index_second_info)
+            logger.info(f"成功抓取申万二级行业数据，共{len(df)}条")
+            return df
+        except Exception as e:
+            raise DataFetchError(f"获取申万二级行业数据失败: {str(e)}")
+    
+    def fetch_sw_industry_third_info(self) -> pd.DataFrame:
+        """
+        获取申万三级行业数据
+        
+        Returns:
+            pd.DataFrame: 申万三级行业数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.info("开始抓取申万三级行业数据")
+            df = self._retry_wrapper(self.ak.sw_index_third_info)
+            logger.info(f"成功抓取申万三级行业数据，共{len(df)}条")
+            return df
+        except Exception as e:
+            raise DataFetchError(f"获取申万三级行业数据失败: {str(e)}")
 
 
 class DataFetchFactory:
@@ -331,6 +394,27 @@ def is_trading_day(date: Union[str, datetime, date_type]) -> bool:
         # 出错时回退到工作日检查
         return date_obj.weekday() < 5
 
+def get_sw_industry_first_info(**kwargs) -> pd.DataFrame:
+    """
+    获取申万一级行业数据的便捷方法
+    """
+    fetcher = DataFetchFactory.get_fetcher(**kwargs)
+    return fetcher.fetch_sw_industry_first_info()
+
+def get_sw_industry_second_info(**kwargs) -> pd.DataFrame:
+    """
+    获取申万二级行业数据的便捷方法
+    """
+    fetcher = DataFetchFactory.get_fetcher(**kwargs)
+    return fetcher.fetch_sw_industry_second_info()
+
+def get_sw_industry_third_info(**kwargs) -> pd.DataFrame:
+    """
+    获取申万三级行业数据的便捷方法
+    """
+    fetcher = DataFetchFactory.get_fetcher(**kwargs)
+    return fetcher.fetch_sw_industry_third_info()
+
 # 模块初始化时的设置
 __all__ = [
     'DataFetcher',
@@ -339,5 +423,8 @@ __all__ = [
     'DataFetchError',
     'get_stock_basic_info',
     'get_stock_daily',
+    'get_sw_industry_first_info',
+    'get_sw_industry_second_info',
+    'get_sw_industry_third_info',
     'is_trading_day'
 ]

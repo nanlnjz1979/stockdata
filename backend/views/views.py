@@ -258,43 +258,9 @@ def _start_full_update_thread():
     t.start()
     return True
 
-# 队列更新：从任务列表中取任务并执行
-
-
-
-class UpdateRunView(APIView):
-
-    
-    def post(self, request):
-        """触发一次数据更新（占位）：在后台线程执行采集脚本的run_once。"""
-        import threading
-        import time
-        import sys
-        from datetime import datetime
-
-        def task():
-            try:
-                project_root = Path(settings.BASE_DIR).parent
-                if str(project_root) not in sys.path:
-                    sys.path.append(str(project_root))
-                from data_pipeline.collector import run_once
-            except Exception:
-                pass
-
-        threading.Thread(target=task, daemon=True).start()
-        return Response({
-            'started': True,
-            'started_at': timezone.now(),
-            'note': '后台执行 data_pipeline.collector.run_once(TEST)（占位）'
-        })
-
-
 # 队列更新 API：从任务列表取任务执行
 # 从QueueUpdateTask导入队列更新视图
 from stocks.tasks.QueueUpdateTask import QueueUpdateStartView
-
-
-
 
 class UpdateStatusView(APIView):
     # 静态数据库连接
