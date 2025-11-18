@@ -1,12 +1,20 @@
 import json
 import logging
 import threading
+import os
+import pandas as pd
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+from backend.global_config.utils import save_to_csv
 from backend.global_config import norm_date
 from backend.global_config.utils import _num, _int, make_symbol
 from backend.global_config.data_fetch import AkshareFetcher
+from backend.global_config.file_config import FileConfig
 from .base import BaseTask
+
+
+
+
 
 def _insert_daily_thread(code, df, adj, conn=None, result_dict=None):
     """在线程中执行数据插入操作并更新结果字典"""
@@ -137,7 +145,6 @@ class DownloadDailyTask(BaseTask):
         # 检查依赖
         if params_str:
             self.params_str = params_str
-            
         params = self._parse_params()
         market = (params.get('market') or '').upper()
         
@@ -160,14 +167,20 @@ class DownloadDailyTask(BaseTask):
         if not codes:
             logger.warning("未提供有效的股票代码（params 需包含 'code' 或 'codes'）")
             return False
-
-        conn_local = conn 
-        if not conn_local:
-            logger.error("QuestDB 连接失败")
-            return False
+        
+        # 检查是否保存到CSV文件
+        to_csv = FileConfig.get("to_csv", False)
+        logger.info(f"任务配置：保存到CSV文件 = {to_csv}")
+        
+        # 如果不保存到CSV文件，则检查数据库连接
+        if not to_csv:
+            conn_local = conn 
+            if not conn_local:
+                logger.error("QuestDB 连接失败")
+                return False
         
         try:
-            # 用于线程间共享结果的数据结构
+            # 用于存储结果
             result_dict = {
                 'total_saved': 0,
                 'success_codes': [],
@@ -175,47 +188,84 @@ class DownloadDailyTask(BaseTask):
                 'lock': threading.Lock()
             }
             
-            # 存储所有线程
-            threads = []
-            
-            for code in codes:
-                adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
-                for adj in adjust_all:
+            if to_csv:
+                # 保存到CSV：不使用线程，直接保存
+                for code in codes:
                     try:
-                        # 先获取数据
-                        df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
+                        # 获取所有需要的复权类型
+                        adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
                         
-                        # 创建并启动线程来保存数据
-                        t = threading.Thread(
-                            target=_insert_daily_thread,
-                            args=(code, df, adj, conn_local, result_dict),
-                            name=f"save_{code}_{adj}"
-                        )
-                        threads.append(t)
-                        t.start()
+                        # 收集所有复权类型的数据
+                        all_data = []
+                        total_rows = 0
+                        
+                        for adj in adjust_all:
+                            df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
+                            if df is not None and not df.empty:
+                                # 复制DataFrame以避免修改原始数据
+                                temp_df = df.copy()
+                                # 添加复权类型标识
+                                temp_df['adjust_type'] = adj if (adj and str(adj).strip()) else None
+                                all_data.append(temp_df)
+                                total_rows += len(temp_df)
+                        
+                        # 合并所有复权类型的数据并一次性保存
+                        if all_data:
+                            # 合并所有DataFrame
+                            combined_df = pd.concat(all_data, ignore_index=True)
+                            # 一次性保存到CSV
+                            saved_count = save_to_csv(code, combined_df, None)  # 传入None作为adj参数，因为已经在数据中包含了adjust_type
+                            result_dict['total_saved'] += saved_count
+                            
+                            if saved_count > 0:
+                                result_dict['success_codes'].append(code)
+                                logger.info(f"成功保存股票 {code} 的所有复权类型数据，共 {total_rows} 行")
                     except Exception as e:
-                        logger.exception("数据获取失败: code=%s, adj=%s, error=%s", code, adj, e)
-                        with result_dict['lock']:
-                            result_dict['failed_codes'].append((code, f"获取数据失败: {str(e)}"))
-            
-            # 等待所有线程完成
-            for t in threads:
-                t.join()
+                        logger.exception("数据获取或保存失败: code=%s, error=%s", code, e)
+                        result_dict['failed_codes'].append((code, str(e)))
+            else:
+                # 保存到数据库：继续使用线程
+                threads = []
+                for code in codes:
+                    adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
+                    for adj in adjust_all:
+                        try:
+                            # 先获取数据
+                            df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
+                            
+                            # 创建并启动线程来保存数据到数据库
+                            t = threading.Thread(
+                                target=_insert_daily_thread,
+                                args=(code, df, adj, conn_local, result_dict),
+                                name=f"save_db_{code}_{adj}"
+                            )
+                            threads.append(t)
+                            t.start()
+                        except Exception as e:
+                            logger.exception("数据获取失败: code=%s, adj=%s, error=%s", code, adj, e)
+                            with result_dict['lock']:
+                                result_dict['failed_codes'].append((code, f"获取数据失败: {str(e)}"))
+                
+                # 等待所有线程完成
+                for t in threads:
+                    t.join()
             
             # 记录结果
             total_saved = result_dict['total_saved']
             success_count = len(result_dict['success_codes'])
             failed_count = len(result_dict['failed_codes'])
             
-            logger.info("任务完成：codes=%s, total_saved=%s, success_codes=%d, failed_codes=%d", 
-                      codes, total_saved, success_count, failed_count)
+            save_type = "CSV文件" if to_csv else "数据库"
+            logger.info("任务完成：codes=%s, 保存到=%s, total_saved=%s, success_codes=%d, failed_codes=%d", 
+                      codes, save_type, total_saved, success_count, failed_count)
             
             if failed_count > 0:
                 logger.warning("部分代码保存失败: %s", result_dict['failed_codes'])
             
             return total_saved > 0
         finally:
-            if conn is None:
+            # 只有在保存到数据库时才需要关闭连接
+            if not to_csv and conn is None:
                 try:
                     conn_local.close()
                 except Exception:

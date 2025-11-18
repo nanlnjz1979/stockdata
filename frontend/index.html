@@ -420,6 +420,7 @@
         <button class="tab" data-target="task-monitor"><i class="ri-task-line"></i><span>任务状态</span></button>
         <button class="tab" data-target="tasks"><i class="ri-calendar-check-line"></i><span>计划任务</span></button>
         <button class="tab" data-target="config"><i class="ri-settings-3-line"></i><span>参数配置</span></button>
+        <button class="tab" data-target="database"><i class="ri-save-3-line"></i><span>备份恢复</span></button>
         <button class="tab" data-target="sw_data"><i class="ri-line-chart-line"></i><span>申万数据</span></button>
       </nav>
     </aside>
@@ -725,6 +726,8 @@
                 </div>
               </div>
             </div>
+            
+
           </div>
 
 
@@ -740,18 +743,42 @@
                 <li>连接状态：<span id="updateQdb">-</span></li>
                 <li>参数：<span id="updateQdbParams">-</span></li>
                 <li>基础股票数量：<span id="updateBasicCount">-</span></li>
-                <li>财务记录数量：<span id="updateFinanceCount">-</span></li>
-                <li>最新财报日期：<span id="updateLatestFinance">-</span></li>
-                <li>最近关注时间：<span id="updateLatestFollow">-</span></li>
+
               </ul>
+              
+              <!-- 刷新模式控制 -->
+              <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+                <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #333;">刷新模式</h4>
+                <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
+                  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="refreshMode" value="auto" checked style="cursor: pointer;">
+                    <span>自动刷新</span>
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="refreshMode" value="manual" style="cursor: pointer;">
+                    <span>手动刷新</span>
+                  </label>
+                </div>
+                <div id="autoRefreshSettings" style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                  <span>刷新间隔：</span>
+                  <select id="refreshInterval" class="input" style="width: auto;">
+                    <option value="1000">1秒</option>
+                    <option value="3000" selected>3秒</option>
+                    <option value="5000">5秒</option>
+                    <option value="10000">10秒</option>
+                    <option value="30000">30秒</option>
+                  </select>
+                </div>
+                <div id="manualRefreshSettings" style="display: none;">
+                  <button class="btn" id="manualRefreshBtn">手动刷新</button>
+                </div>
+              </div>
             </div>
             <div class="card">
               <h3>触发更新</h3>
               <div class="status">后台执行采集脚本</div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 <button class="btn outline" id="updateFull">生成全量更新任务</button>
-                <button class="btn outline" id="updatePause">暂停</button>
-                <button class="btn outline danger" id="updateStop">停止</button>
               </div>
               <div id="updateFullStatus" class="status" style="margin-top:8px;">未触发</div>
             </div>
@@ -939,6 +966,117 @@
             <small class="muted">提示：时间可填"16:30"或"1970-01-01 16:30:00"，保存时自动规范化。</small>
           </div>
         </section>
+        <!-- 备份恢复 -->
+        <section id="database" class="section">
+          <div class="card">
+            <div class="tabs">
+              <button class="tab-btn active" data-tab="backup">数据库备份</button>
+              <button class="tab-btn" data-tab="restore">数据库恢复</button>
+              <button class="tab-btn" data-tab="stock-sync">股票数据同步</button>
+              <button class="tab-btn" data-tab="sw-sync">申万数据同步</button>
+            </div>
+            
+            <!-- 数据库备份 -->
+            <div class="tab-content active" id="backup">
+              <div class="status">数据库备份管理</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                <button id="backupBtn" class="btn"><i class="ri-save-line" style="margin-right: 6px;"></i>执行备份</button>
+                <span id="backupStatus" style="color: #666;">就绪</span>
+              </div>
+              <table class="table">
+                <thead>
+                  <tr><th>备份文件名</th><th>备份时间</th><th>文件大小</th><th>状态</th><th>操作</th></tr>
+                </thead>
+                <tbody id="backupTable">
+                  <!-- 备份记录将动态显示 -->
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- 数据库恢复 -->
+            <div class="tab-content" id="restore">
+              <div class="status">数据库恢复管理</div>
+              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                <input id="backupFileName" type="text" class="input" style="width: 300px;" value="data\daily" placeholder="data\daily" />
+                <button id="restoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                <span id="restoreStatus" style="color: #666;">就绪</span>
+              </div>
+              <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
+                警告：数据库恢复操作将覆盖当前数据库内容，请确保已做好必要的备份！
+              </div>
+              <div id="restoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                  <span>恢复进度：</span>
+                  <span id="restoreProgressText">0%</span>
+                </div>
+                <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
+                  <div id="restoreProgressBar" style="width: 0%; height: 20px; background-color: #2196F3; transition: width 0.3s ease;"></div>
+                </div>
+              </div>
+              <div id="restoreLog" style="max-height: 300px; overflow-y: auto; background-color: #f5f5f5; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.6;">
+                <!-- 恢复日志将动态显示 -->
+              </div>
+            </div>
+            
+            <!-- 股票数据同步 -->
+            <div class="tab-content" id="stock-sync">
+              <div class="status">股票数据同步状态</div>
+              <!-- 新增外层容器 -->
+              <div style="margin-top: 16px;">
+                <div style="margin-bottom: 16px; padding: 16px; background-color: #f8f9fa; border-radius: 6px;">
+                  <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 4px; font-weight: 500;">主目录：</label>
+                    <input type="text" id="stockMainDir" class="input" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" placeholder="请输入主目录路径" value="data\daily">
+                  </div>
+                  <div>
+                    <label style="display: block; margin-bottom: 4px; font-weight: 500;">追加目录：</label>
+                    <input type="text" id="stockAdditionalDir" class="input" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" placeholder="请输入追加目录路径" value="data\daily_append">
+                  </div>
+                </div>
+                <button class="btn" id="startStockSyncBtn">开始同步</button>
+              </div>
+              <!-- 移除了统计卡片 -->
+              <div style="margin-top: 20px;">
+                <div id="stockSyncProgress" style="margin-top: 16px; display: none;">
+                  <div class="progress-container">
+                    <div class="progress-bar" id="stockSyncProgressBar" style="width: 0%"></div>
+                  </div>
+                  <div id="stockSyncProgressText" style="margin-top: 8px; font-size: 14px;">同步中...</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 申万数据同步 -->
+            <div class="tab-content" id="sw-sync">
+              <div class="status">申万数据同步状态</div>
+              <div id="swSyncStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+                <div class="stat-card">
+                  <div class="stat-number" id="swSyncTotal">0</div>
+                  <div class="stat-label">总指数数</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="swSyncCompleted">0</div>
+                  <div class="stat-label">已同步</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="swSyncProgress">0%</div>
+                  <div class="stat-label">同步进度</div>
+                </div>
+              </div>
+              <div style="margin-top: 20px;">
+                <button class="btn" id="startSwSyncBtn">开始同步</button>
+                <div id="swSyncProgress" style="margin-top: 16px; display: none;">
+                  <div class="progress-container">
+                    <div class="progress-bar" id="swSyncProgressBar" style="width: 0%"></div>
+                  </div>
+                  <div id="swSyncProgressText" style="margin-top: 8px; font-size: 14px;">同步中...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- 申万数据 -->
         <section id="sw_data" class="section">
           <div class="card">
@@ -968,15 +1106,9 @@
               <div class="status">更新申万行业相关数据</div>
               <div class="form-group">
                 <label>更新选项</label>
-                <div style="display:flex; gap:8px; margin-bottom:16px;">
-                  <button class="btn" id="swFullUpdate">全量更新</button>
-                  <button class="btn outline" id="swIncrementUpdate">增量更新</button>
-                </div>
+
               </div>
-              <div class="progress-container" style="margin-bottom:16px;">
-                <div class="progress-bar" id="swUpdateProgress" style="width:0%"></div>
-              </div>
-              <div id="swUpdateStatus" class="status">未开始</div>
+
             </div>
           </div>
         </section>

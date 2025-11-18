@@ -91,11 +91,18 @@ const API_BASE = 'http://127.0.0.1:8000';
         // 创建树形结构
         const treeData = buildSwClassificationTree(responseData.data);
           
+        // 提取三级行业编号代码
+        const thirdLevelIndustries = extractThirdLevelIndustries(treeData);
+        console.log('提取的三级行业编号:', thirdLevelIndustries);
+          
           // 渲染树形结构
           resultEl.innerHTML = renderSwClassificationTree(treeData);
           
           // 添加树形节点的展开/折叠功能
           addTreeToggleFunctionality();
+          
+          // 显示三级行业编号并添加调用API功能
+          showThirdLevelIndustries(thirdLevelIndustries);
       } else {
         resultEl.textContent = JSON.stringify(responseData, null, 2);
       }
@@ -105,6 +112,238 @@ const API_BASE = 'http://127.0.0.1:8000';
     }
   });
 
+  // 提取三级行业编号代码
+  function extractThirdLevelIndustries(treeData) {
+    const thirdLevelCodes = [];
+    
+    // 遍历树形结构，找出三级行业
+    function traverse(node, level = 0) {
+      // 申万分类通常为三级结构，这里假设没有子节点的节点是三级行业
+      // 或者可以通过行业代码格式来判断
+      const isThirdLevel = !node.children || node.children.length === 0;
+      
+      if (isThirdLevel && level === 2) {
+        thirdLevelCodes.push(node.id);
+      }
+      
+      // 继续遍历子节点
+      if (node.children && node.children.length > 0) {
+        node.children.forEach(child => traverse(child, level + 1));
+      }
+    }
+    
+    // 从根节点开始遍历
+    treeData.forEach(node => traverse(node));
+    return thirdLevelCodes;
+  }
+  
+  // 显示三级行业编号
+  function showThirdLevelIndustries(industryCodes) {
+    const resultEl = qs('#swClassificationResult');
+    
+    // 创建一个容器来显示三级行业编号
+    const thirdLevelContainer = document.createElement('div');
+    thirdLevelContainer.className = 'third-level-industries';
+    thirdLevelContainer.style.marginTop = '20px';
+    thirdLevelContainer.style.padding = '15px';
+    thirdLevelContainer.style.backgroundColor = '#f5f5f5';
+    thirdLevelContainer.style.borderRadius = '4px';
+    
+    // 添加标题
+    const titleEl = document.createElement('h3');
+    titleEl.textContent = `三级行业编号代码（共${industryCodes.length}个）：`;
+    titleEl.style.marginTop = '0';
+    titleEl.style.color = '#333';
+    thirdLevelContainer.appendChild(titleEl);
+    
+    // 添加编号列表
+    const codesListEl = document.createElement('div');
+    codesListEl.style.wordWrap = 'break-word';
+    codesListEl.style.lineHeight = '1.5';
+    codesListEl.textContent = industryCodes.join(', ');
+    thirdLevelContainer.appendChild(codesListEl);
+    
+    // 添加调用API按钮
+    const callApiBtn = document.createElement('button');
+    callApiBtn.className = 'btn primary';
+    callApiBtn.textContent = '开始调用API获取详细信息';
+    callApiBtn.style.marginTop = '15px';
+    callApiBtn.onclick = async () => {
+      // 禁用按钮防止重复点击
+      callApiBtn.disabled = true;
+      callApiBtn.textContent = '调用中...';
+      
+      // 创建结果显示区域
+      const resultsContainer = document.createElement('div');
+      resultsContainer.className = 'api-results';
+      resultsContainer.style.marginTop = '15px';
+      resultsContainer.style.padding = '10px';
+      resultsContainer.style.backgroundColor = '#fff';
+      resultsContainer.style.borderRadius = '4px';
+      resultsContainer.style.border = '1px solid #ddd';
+      
+      // 添加进度条容器
+      const progressContainer = createProgressBar();
+      resultsContainer.appendChild(progressContainer);
+      
+      // 添加结果标题
+      const resultsTitle = document.createElement('h4');
+      resultsTitle.textContent = 'API调用结果：';
+      resultsTitle.style.marginTop = '15px';
+      resultsContainer.appendChild(resultsTitle);
+      
+      // 添加结果列表容器
+      const resultsList = document.createElement('div');
+      resultsList.style.maxHeight = '300px';
+      resultsList.style.overflowY = 'auto';
+      resultsContainer.appendChild(resultsList);
+      
+      // 添加到容器
+      thirdLevelContainer.appendChild(resultsContainer);
+      
+      try {
+        // 逐个调用API
+        await callIndustryCodeAPI(industryCodes, resultsList, progressContainer);
+        
+        // 调用完成后更新按钮状态
+        callApiBtn.textContent = 'API调用完成';
+        callApiBtn.style.backgroundColor = '#4CAF50';
+      } catch (error) {
+        console.error('API调用失败:', error);
+        callApiBtn.textContent = '调用失败，请重试';
+        callApiBtn.style.backgroundColor = '#f44336';
+        
+        // 显示错误信息
+        const errorEl = document.createElement('div');
+        errorEl.style.color = 'red';
+        errorEl.textContent = `错误: ${error.message}`;
+        resultsList.appendChild(errorEl);
+      } finally {
+        // 允许再次点击
+        setTimeout(() => {
+          callApiBtn.disabled = false;
+          callApiBtn.textContent = '重新调用API';
+          callApiBtn.style.backgroundColor = '';
+        }, 1000);
+      }
+    };
+    thirdLevelContainer.appendChild(callApiBtn);
+    
+    // 添加到结果区域
+    resultEl.appendChild(thirdLevelContainer);
+  }
+  
+  // 创建进度条
+  function createProgressBar() {
+    const container = document.createElement('div');
+    container.className = 'progress-container';
+    container.style.width = '100%';
+    container.style.backgroundColor = '#f0f0f0';
+    container.style.borderRadius = '4px';
+    container.style.overflow = 'hidden';
+    
+    const progressBar = document.createElement('div');
+    progressBar.className = 'progress-bar';
+    progressBar.style.width = '0%';
+    progressBar.style.height = '20px';
+    progressBar.style.backgroundColor = '#2196F3';
+    progressBar.style.transition = 'width 0.3s ease';
+    
+    const progressText = document.createElement('div');
+    progressText.className = 'progress-text';
+    progressText.style.position = 'absolute';
+    progressText.style.width = '100%';
+    progressText.style.textAlign = 'center';
+    progressText.style.lineHeight = '20px';
+    progressText.style.fontSize = '12px';
+    progressText.style.color = '#333';
+    progressText.textContent = '0%';
+    
+    container.style.position = 'relative';
+    container.appendChild(progressBar);
+    container.appendChild(progressText);
+    
+    // 保存引用以便后续更新
+    container.progressBar = progressBar;
+    container.progressText = progressText;
+    
+    return container;
+  }
+  
+  // 更新进度条
+  function updateProgressBar(progressContainer, current, total) {
+    const percent = Math.round((current / total) * 100);
+    progressContainer.progressBar.style.width = `${percent}%`;
+    progressContainer.progressText.textContent = `${percent}% (${current}/${total})`;
+  }
+  
+  // 逐个调用行业代码API
+  async function callIndustryCodeAPI(industryCodes, resultsList, progressContainer) {
+    const total = industryCodes.length;
+    const results = [];
+    
+    // 逐个处理每个行业代码
+    for (let i = 0; i < total; i++) {
+      const code = industryCodes[i];
+      
+      try {
+        // 创建当前代码的结果元素
+        const codeResultEl = document.createElement('div');
+        codeResultEl.style.marginBottom = '8px';
+        codeResultEl.style.padding = '8px';
+        codeResultEl.style.backgroundColor = '#f9f9f9';
+        codeResultEl.style.borderRadius = '4px';
+        codeResultEl.innerHTML = `<strong>处理行业代码: ${code}</strong> - 处理中...`;
+        resultsList.appendChild(codeResultEl);
+        
+        // 调用API
+        const response = await fetch(`${API_BASE}/api/stocks/sw/third_level_industry_codes?code=${code}`);
+        
+        if (!response.ok) {
+          throw new Error(`API调用失败，状态码: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        results.push({ code, data });
+        
+        // 更新显示结果
+        codeResultEl.innerHTML = `<strong>行业代码: ${code}</strong> - 处理完成`;
+        codeResultEl.style.backgroundColor = '#e8f5e8';
+        
+        // 添加详细结果
+        const dataEl = document.createElement('pre');
+        dataEl.style.marginTop = '5px';
+        dataEl.style.padding = '5px';
+        dataEl.style.backgroundColor = '#fff';
+        dataEl.style.borderRadius = '3px';
+        dataEl.style.fontSize = '12px';
+        dataEl.style.overflow = 'auto';
+        dataEl.textContent = JSON.stringify(data, null, 2);
+        codeResultEl.appendChild(dataEl);
+        
+      } catch (error) {
+        console.error(`处理代码 ${code} 失败:`, error);
+        
+        // 更新错误显示
+        const errorEl = document.createElement('div');
+        errorEl.style.marginBottom = '8px';
+        errorEl.style.padding = '8px';
+        errorEl.style.backgroundColor = '#ffebee';
+        errorEl.style.borderRadius = '4px';
+        errorEl.innerHTML = `<strong>行业代码: ${code}</strong> - 处理失败: ${error.message}`;
+        resultsList.appendChild(errorEl);
+      } finally {
+                // 更新进度条
+                updateProgressBar(progressContainer, i + 1, total);
+                
+                // 可选：添加短暂延迟以避免请求过快
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+    }
+    
+    return results;
+  }
+  
   // 构建申万分类树结构
   function buildSwClassificationTree(data) {
     // 健壮性检查
@@ -339,61 +578,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   
 
   
-  // 全量更新申万数据
-  qs('#swFullUpdate')?.addEventListener('click', async () => {
-    try {
-      const statusEl = qs('#swUpdateStatus');
-      const progressEl = qs('#swUpdateProgress');
-      
-      statusEl.textContent = '开始全量更新...';
-      progressEl.style.width = '0%';
-      
-      const response = await fetch(`${API_BASE}/api/stocks/sw/update/full`, {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      statusEl.textContent = `更新任务已启动: ${data.message || ''}`;
-      
-      // 模拟进度更新
-      simulateProgress(progressEl, statusEl, '全量更新');
-    } catch (error) {
-      console.error('全量更新失败:', error);
-      qs('#swUpdateStatus').textContent = `更新失败: ${error.message}`;
-    }
-  });
-  
-  // 增量更新申万数据
-  qs('#swIncrementUpdate')?.addEventListener('click', async () => {
-    try {
-      const statusEl = qs('#swUpdateStatus');
-      const progressEl = qs('#swUpdateProgress');
-      
-      statusEl.textContent = '开始增量更新...';
-      progressEl.style.width = '0%';
-      
-      const response = await fetch(`${API_BASE}/api/stocks/sw/update/increment`, {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      statusEl.textContent = `更新任务已启动: ${data.message || ''}`;
-      
-      // 模拟进度更新
-      simulateProgress(progressEl, statusEl, '增量更新');
-    } catch (error) {
-      console.error('增量更新失败:', error);
-      qs('#swUpdateStatus').textContent = `更新失败: ${error.message}`;
-    }
-  });
+
   
   // 模拟进度更新
   function simulateProgress(progressEl, statusEl, type) {
@@ -2928,9 +3113,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   const qdbEl = document.getElementById('updateQdb');
   const paramsEl = document.getElementById('updateQdbParams');
   const basicEl = document.getElementById('updateBasicCount');
-  const financeEl = document.getElementById('updateFinanceCount');
-  const latestFinanceEl = document.getElementById('updateLatestFinance');
-  const latestFollowEl = document.getElementById('updateLatestFollow');
+  
   const fullBtn = document.getElementById('updateFull');
   const fullStatusEl = document.getElementById('updateFullStatus');
   const pauseBtn = document.getElementById('updatePause');
@@ -2942,6 +3125,15 @@ const API_BASE = 'http://127.0.0.1:8000';
    let paused = false;
    let queuePaused = false;
 
+  // 创建连接池状态显示元素
+  const poolStatusEl = document.createElement('div');
+  poolStatusEl.className = 'connection-pool-status';
+  poolStatusEl.style.marginTop = '10px';
+  poolStatusEl.style.padding = '8px';
+  poolStatusEl.style.backgroundColor = '#f0f0f0';
+  poolStatusEl.style.borderRadius = '4px';
+  paramsEl.parentNode.appendChild(poolStatusEl);
+
   fetch(`${API_BASE}/api/stocks/update/status`)
     .then(r => r.json())
     .then(d => {
@@ -2950,11 +3142,13 @@ const API_BASE = 'http://127.0.0.1:8000';
       paused = !!ctrl.paused;
       queuePaused = !!qctrl.paused;
       qdbEl.textContent = d.questdb?.connected ? '已连接' : '未连接';
-      paramsEl.textContent = `${d.questdb?.host || '-'}:${d.questdb?.port || '-'} ${d.questdb?.user || '-'}/${d.questdb?.dbname || '-'}`;
+      // 更新为连接状态，不再显示连接参数
+      paramsEl.textContent = d.questdb?.connected ? '连接状态正常' : (d.questdb?.error || '连接失败');
       basicEl.textContent = d.stock_basic_count || 0;
-      financeEl.textContent = d.finance_count || 0;
-      latestFinanceEl.textContent = d.latest_finance_date || '-';
-      latestFollowEl.textContent = d.latest_follow_time || '-';
+      
+      // 显示连接池状态
+      updatePoolStatus(d.connection_pool);
+      
       // 初始化按钮文案
       if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
       if (queueToggleBtn) queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
@@ -2962,7 +3156,21 @@ const API_BASE = 'http://127.0.0.1:8000';
     .catch(err => {
       qdbEl.textContent = '异常';
       paramsEl.textContent = String(err);
+      poolStatusEl.textContent = '连接池状态：无法获取';
     });
+    
+  function updatePoolStatus(poolStats) {
+    if (!poolStats) {
+      poolStatusEl.textContent = '连接池状态：暂无数据';
+      return;
+    }
+    
+    poolStatusEl.innerHTML = `连接池状态：
+      <br>活跃连接数：${poolStats.active_connections || 0}
+      <br>空闲连接数：${poolStats.idle_connections || 0}
+      <br>总连接数：${poolStats.total_connections || 0}
+      <br>最大连接数：${poolStats.max_connections || 0}`;
+  }
 
   fullBtn?.addEventListener('click', () => {
     fullStatusEl.textContent = '触发全量中...';
@@ -2977,7 +3185,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         return payload;
       })
       .then(d => {
-        fullStatusEl.textContent = `started=${d.started} at ${d.started_at || ''} total=${d.total_codes || ''}`;
+        fullStatusEl.textContent = `started=${d.started} at ${d.started_at || ''}`;
         if (!d.started) {
           toast(d.error || '启动失败');
         }
@@ -2988,28 +3196,9 @@ const API_BASE = 'http://127.0.0.1:8000';
       });
   });
 
-  pauseBtn?.addEventListener('click', async () => {
-    try {
-      const url = paused ? `${API_BASE}/api/stocks/update/resume` : `${API_BASE}/api/stocks/update/pause`;
-      const res = await fetch(url, { method: 'POST' });
-      const data = await res.json();
-      paused = !!data.paused;
-      pauseBtn.textContent = paused ? '继续' : '暂停';
-      toast(paused ? '已暂停全量更新' : '已继续全量更新');
-    } catch(e) {
-      toast('操作失败');
-    }
-  });
 
-  stopBtn?.addEventListener('click', async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/stocks/update/stop`, { method: 'POST' });
-      const data = await res.json();
-      toast('已请求停止，全量更新将尽快退出');
-    } catch(e) {
-      toast('停止失败');
-    }
-  });
+
+
 
   // 任务队列：启动 + 暂停/继续
   queueStartBtn?.addEventListener('click', async () => {
@@ -3064,14 +3253,17 @@ const API_BASE = 'http://127.0.0.1:8000';
       if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
       if (queueToggleBtn) queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
       qdbEl.textContent = qdb.connected ? '已连接' : '未连接';
-      paramsEl.textContent = `${qdb.host||'-'}:${qdb.port||'-'} ${qdb.user||'-'}/${qdb.dbname||'-'}`;
+      paramsEl.textContent = qdb.connected ? '连接状态正常' : (qdb.error || '连接失败');
       basicEl.textContent = data.stock_basic_count ?? 0;
-      financeEl.textContent = data.finance_count ?? 0;
-      latestFinanceEl.textContent = data.latest_finance_date || '-';
-      latestFollowEl.textContent = data.latest_follow_time || '-';
+      
+      // 更新连接池状态
+      updatePoolStatus(data.connection_pool);
     } catch(e) {
       qdbEl.textContent = '加载失败';
       paramsEl.textContent = '-';
+      if (poolStatusEl) {
+        poolStatusEl.textContent = '连接池状态：无法获取';
+      }
     }
   }
 
@@ -3079,22 +3271,22 @@ const API_BASE = 'http://127.0.0.1:8000';
     try {
       const res = await fetch(`${API_BASE}/api/stocks/update/status`);
       const data = await res.json();
-      const total = (data.controller?.total_codes ?? data.total_codes) || 0;
-      const updated = (data.controller?.updated_count ?? data.updated_count) || 0;
-      const percent = total ? Math.round(updated / total * 100) : 0;
       const cur = data.controller?.current_code || '-';
       const runFlag = data.controller?.running ? '运行中' : (data.controller?.stopped ? '已停止' : '空闲');
-      const recent = (data.recent_updates || []).map(r => r.code).slice(0,5).join(', ');
+      
+      // 更新连接池状态
+      updatePoolStatus(data.connection_pool);
+      
+      // 更新QuestDB连接状态显示
+      if (qdbEl) qdbEl.textContent = data.questdb?.connected ? '已连接' : '未连接';
+      if (paramsEl) paramsEl.textContent = data.questdb?.connected ? '连接状态正常' : (data.questdb?.error || '连接失败');
       // 原有全量状态
-      fullStatusEl.textContent = `状态：${runFlag} | 进度：${updated}/${total} (${percent}%) 当前：${cur} 最近：${recent || '-'}`;
+      fullStatusEl.textContent = `状态：${runFlag} | 当前：${cur}`;
       // 新增任务队列状态（从 queue_controller 取状态）
       if (queueStatusEl) {
-        const qtotal = (data.queue_controller?.total_codes ?? 0) || 0;
-        const qupdated = (data.queue_controller?.updated_count ?? 0) || 0;
-        const qpercent = qtotal ? Math.round(qupdated / qtotal * 100) : 0;
         const qcur = data.queue_controller?.current_code || '-';
         const qrunFlag = data.queue_controller?.running ? '运行中' : (data.queue_controller?.stopped ? '已停止' : '空闲');
-        queueStatusEl.textContent = `状态：${qrunFlag} | 进度：${qupdated}/${qtotal} (${qpercent}%) 当前：${qcur}`;
+        queueStatusEl.textContent = `状态：${qrunFlag} | 当前：${qcur}`;
       }
       // 切换按钮可用性与文案
       const running = !!(data.queue_controller?.running);
@@ -3112,7 +3304,73 @@ const API_BASE = 'http://127.0.0.1:8000';
   // 已删除增量更新按钮
   if (updateTab) updateTab.addEventListener('click', loadStatus);
   loadStatus();
-  setInterval(pollProgress, 3000);
+  // 刷新模式相关变量
+  let refreshIntervalId = null;
+  let currentRefreshMode = 'auto';
+  let currentInterval = 3000; // 默认3秒
+  
+  // 获取UI元素
+  const autoRefreshRadio = document.querySelector('input[name="refreshMode"][value="auto"]');
+  const manualRefreshRadio = document.querySelector('input[name="refreshMode"][value="manual"]');
+  const refreshIntervalSelect = document.getElementById('refreshInterval');
+  const manualRefreshBtn = document.getElementById('manualRefreshBtn');
+  const autoRefreshSettings = document.getElementById('autoRefreshSettings');
+  const manualRefreshSettings = document.getElementById('manualRefreshSettings');
+  
+  // 设置刷新模式
+  function setupRefreshMode() {
+    // 清除现有定时器
+    if (refreshIntervalId) {
+      clearInterval(refreshIntervalId);
+      refreshIntervalId = null;
+    }
+    
+    // 根据选择的模式设置刷新
+    if (currentRefreshMode === 'auto') {
+      // 显示自动刷新设置，隐藏手动刷新按钮
+      autoRefreshSettings.style.display = 'flex';
+      manualRefreshSettings.style.display = 'none';
+      // 启动定时器
+      refreshIntervalId = setInterval(pollProgress, currentInterval);
+    } else {
+      // 隐藏自动刷新设置，显示手动刷新按钮
+      autoRefreshSettings.style.display = 'none';
+      manualRefreshSettings.style.display = 'block';
+      // 手动模式下不启动定时器
+    }
+  }
+  
+  // 自动刷新单选按钮事件
+  autoRefreshRadio?.addEventListener('change', function() {
+    if (this.checked) {
+      currentRefreshMode = 'auto';
+      setupRefreshMode();
+    }
+  });
+  
+  // 手动刷新单选按钮事件
+  manualRefreshRadio?.addEventListener('change', function() {
+    if (this.checked) {
+      currentRefreshMode = 'manual';
+      setupRefreshMode();
+    }
+  });
+  
+  // 刷新间隔选择器事件
+  refreshIntervalSelect?.addEventListener('change', function() {
+    currentInterval = parseInt(this.value, 10);
+    if (currentRefreshMode === 'auto') {
+      setupRefreshMode();
+    }
+  });
+  
+  // 手动刷新按钮事件
+  manualRefreshBtn?.addEventListener('click', function() {
+    pollProgress();
+  });
+  
+  // 初始化设置
+  setupRefreshMode();
 })();
 
 // 计划任务模块（列表 + 过滤）
@@ -3443,4 +3701,636 @@ const API_BASE = 'http://127.0.0.1:8000';
   const cfgTab = document.querySelector('.sidebar .tab[data-target="config"]');
   if (cfgTab) cfgTab.addEventListener('click', reload);
 })();
+
+// 备份恢复功能实现
+(function initDatabaseBackup() {
+  console.log('初始化数据库备份恢复功能');
+  
+  // 选项卡切换逻辑
+  const dbTabs = document.querySelectorAll('#database .tab-btn');
+  dbTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabId = tab.getAttribute('data-tab');
+      
+      // 移除所有选项卡和内容的active类
+      dbTabs.forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('#database .tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      
+      // 添加当前选项卡和内容的active类
+      tab.classList.add('active');
+      const contentEl = document.getElementById(tabId);
+      if (contentEl) {
+        contentEl.classList.add('active');
+        console.log(`切换到选项卡: ${tabId}`);
+      }
+    });
+  });
+  
+  // 执行备份功能
+  const backupBtn = qs('#backupBtn');
+  const backupStatus = qs('#backupStatus');
+  const backupTable = qs('#backupTable');
+  
+  if (backupBtn) {
+    backupBtn.addEventListener('click', async () => {
+      try {
+        backupBtn.disabled = true;
+        backupStatus.textContent = '正在执行备份...';
+        
+        // 模拟备份过程
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // 模拟备份成功
+        const timestamp = new Date().toLocaleString();
+        const size = (Math.random() * 100 + 50).toFixed(2);
+        const backupId = 'backup_' + Date.now();
+        
+        backupStatus.textContent = '备份成功！';
+        
+        // 添加到备份记录表格
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${backupId}</td>
+          <td>${timestamp}</td>
+          <td>${size} MB</td>
+          <td>
+            <button class="btn-small" onclick="downloadBackup('${backupId}')">下载</button>
+            <button class="btn-small danger" onclick="deleteBackup('${backupId}')">删除</button>
+          </td>
+        `;
+        backupTable.appendChild(row);
+        
+      } catch (error) {
+        console.error('备份失败:', error);
+        backupStatus.textContent = '备份失败！';
+      } finally {
+        setTimeout(() => {
+          backupBtn.disabled = false;
+          backupStatus.textContent = '就绪';
+        }, 2000);
+      }
+    });
+  }
+  
+  // 执行恢复功能
+  const restoreBtn = qs('#restoreBtn');
+  const restoreStatus = qs('#restoreStatus');
+  const restoreLog = qs('#restoreLog');
+  const backupFileName = qs('#backupFileName');
+  const restoreProgressContainer = qs('#restoreProgressContainer');
+  const restoreProgressBar = qs('#restoreProgressBar');
+  const restoreProgressText = qs('#restoreProgressText');
+  
+  if (restoreBtn && backupFileName) {
+    restoreBtn.addEventListener('click', async () => {
+      try {
+        const path = backupFileName.value.trim();
+        if (!path) {
+          toast('请输入备份路径');
+          return;
+        }
+        
+        restoreBtn.disabled = true;
+        restoreStatus.textContent = '正在执行恢复...';
+        restoreLog.innerHTML = '开始恢复数据库...<br>';
+        
+        // 调用后端API，传递路径并获取股票代码列表
+        restoreLog.innerHTML += `正在查询路径: ${path} 下的文件...<br>`;
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API请求失败: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.stock_codes && data.stock_codes.length > 0) {
+          restoreLog.innerHTML += `<span style="color: blue;">成功获取 ${data.stock_codes.length} 个股票代码</span><br>`;
+          
+          // 显示获取到的股票代码
+          restoreLog.innerHTML += '股票代码列表:<br>';
+          restoreLog.innerHTML += data.stock_codes.join(', ');
+          restoreLog.innerHTML += '<br><br>';
+          
+          // 显示进度条
+          restoreProgressContainer.style.display = 'block';
+          
+          // 模拟对每个股票代码调用API的过程
+          const totalStocks = data.stock_codes.length;
+          for (let i = 0; i < totalStocks; i++) {
+            const code = data.stock_codes[i];
+            restoreLog.innerHTML += `正在调用股票代码 ${code} 的API...<br>`;
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // 这里将根据后端实现进行实际的API调用
+            try {
+              
+              const stockResponse = await fetch(`${API_BASE}/api/restore/process`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code, path: path })
+              });
+              
+              if (stockResponse.ok) {
+                restoreLog.innerHTML += `<span style="color: green;">股票代码 ${code} 处理成功</span><br>`;
+              } else {
+                restoreLog.innerHTML += `<span style="color: orange;">股票代码 ${code} 处理可能有问题</span><br>`;
+              }
+            } catch (stockError) {
+                restoreLog.innerHTML += `<span style="color: red;">股票代码 ${code} 处理失败: ${stockError.message}</span><br>`;
+              }
+              
+              // 更新进度条
+              const progress = Math.round(((i + 1) / totalStocks) * 100);
+              restoreProgressBar.style.width = `${progress}%`;
+              restoreProgressText.textContent = `${progress}% (${i + 1}/${totalStocks})`;
+          }
+          
+          restoreStatus.textContent = '恢复成功！';
+          restoreLog.innerHTML += '<br><span style="color: green;">所有股票代码处理完成！</span>';
+          // 重置进度条显示
+          restoreProgressContainer.style.display = 'none';
+        } else {
+          restoreLog.innerHTML += `<span style="color: orange;">未找到股票代码文件或路径不存在</span><br>`;
+          restoreStatus.textContent = '恢复完成';
+          // 重置进度条显示
+          restoreProgressContainer.style.display = 'none';
+        }
+        
+      } catch (error) {
+        console.error('恢复失败:', error);
+        restoreStatus.textContent = '恢复失败！';
+        restoreLog.innerHTML += `<span style="color: red;">恢复失败: ${error.message}</span>`;
+        // 重置进度条显示
+        restoreProgressContainer.style.display = 'none';
+      } finally {
+        setTimeout(() => {
+          restoreBtn.disabled = false;
+          restoreStatus.textContent = '就绪';
+          // 重置进度条状态
+          restoreProgressBar.style.width = '0%';
+          restoreProgressText.textContent = '0%';
+        }, 3000);
+      }
+    });
+  }
+  
+  // 模拟恢复过程的函数
+  async function simulateRestoreProcess(fileName) {
+    // 模拟不同阶段的恢复过程
+    const steps = [
+      `开始验证备份文件: ${fileName}`,
+      '连接到数据库...',
+      '备份文件验证通过',
+      '准备恢复环境...',
+      '开始数据恢复...',
+      '正在恢复表结构...',
+      '正在恢复数据...',
+      '正在重建索引...',
+      '恢复完成，正在验证数据一致性...',
+      '数据一致性验证通过'
+    ];
+    
+    for (let i = 0; i < steps.length; i++) {
+      restoreLog.innerHTML += steps[i] + '<br>';
+      // 模拟每一步的延迟
+      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 800));
+    }
+  }
+  
+  // 监听侧边栏切换到数据库备份恢复标签
+  const dbTab = document.querySelector('.sidebar .tab[data-target="database"]');
+  if (dbTab) {
+    dbTab.addEventListener('click', () => {
+      console.log('切换到数据库备份恢复标签');
+    });
+  }
+})();
+
+// 全局函数 - 下载备份文件
+function downloadBackup(backupId) {
+  console.log(`下载备份文件: ${backupId}`);
+  toast(`开始下载备份文件: ${backupId}`);
+  // 这里可以添加实际的下载逻辑
+}
+
+// 全局函数 - 删除备份文件
+function deleteBackup(backupId) {
+  if (confirm(`确定要删除备份文件 ${backupId} 吗？`)) {
+    console.log(`删除备份文件: ${backupId}`);
+    
+    // 找到并删除表格行
+    const rows = document.querySelectorAll('#backupTable tr');
+    for (let row of rows) {
+      if (row.cells[0].textContent === backupId) {
+        row.remove();
+        break;
+      }
+    }
+    
+    toast(`备份文件 ${backupId} 已删除`);
+  }
+}
+
+// 股票数据同步功能实现
+(function initStockSyncButton() {
+    const startBtn = document.getElementById('startStockSyncBtn');
+    if (startBtn) {
+        startBtn.addEventListener('click', async () => {
+            // 获取输入框中的路径
+            const mainPathInput = document.getElementById('stockMainDir');
+            const appendPathInput = document.getElementById('stockAdditionalDir');
+            
+            if (!mainPathInput || !appendPathInput) {
+                toast('找不到路径输入框');
+                return;
+            }
+            
+            const mainPath = mainPathInput.value.trim();
+            const appendPath = appendPathInput.value.trim();
+            
+            // 验证输入
+            if (!mainPath) {
+                toast('请输入主目录路径');
+                return;
+            }
+            
+            if (!appendPath) {
+                toast('请输入追加目录路径');
+                return;
+            }
+            
+            // 禁用按钮，显示加载状态
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="ri-loader-2-line ri-spin"></i> 同步中...';
+            
+            try {
+                // 调用后端API
+                const response = await fetch(`${API_BASE}/api/restore/merge`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        main_path: mainPath,
+                        append_path: appendPath
+                    })
+                });
+                console.log('API请求已发送，路径:', `${API_BASE}/api/restore/merge`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    toast(`同步成功！找到 ${data.total_count} 个股票代码`);
+                    
+                    // 显示股票代码列表（可以根据需要进行格式化展示）
+                    console.log('股票代码列表:', data.stock_codes);
+                    
+                    // 确保有显示区域，如果不存在则创建
+                    let resultArea = document.getElementById('stockSyncResult');
+                    if (!resultArea) {
+                        // 创建结果显示区域
+                        resultArea = document.createElement('div');
+                        resultArea.id = 'stockSyncResult';
+                        resultArea.className = 'stock-sync-result';
+                        
+                        // 查找放置位置 - 尝试放在按钮下方
+                        const startBtn = document.getElementById('startStockSyncBtn');
+                        if (startBtn && startBtn.parentNode) {
+                            startBtn.parentNode.insertBefore(resultArea, startBtn.nextSibling);
+                        } else {
+                            // 否则放在body末尾
+                            document.body.appendChild(resultArea);
+                        }
+                    }
+                    
+                    // 设置结果区域内容
+                    resultArea.innerHTML = `
+                        <div class="sync-result">
+                            <div class="result-summary">
+                                <h3>同步结果</h3>
+                                <p>主目录文件数: ${data.main_path_count}</p>
+                                <p>追加目录文件数: ${data.append_path_count}</p>
+                                <p>合并后文件数: ${data.total_count}</p>
+                            </div>
+                            <div class="stock-codes">
+                                <h4>股票代码列表:</h4>
+                                <div class="code-grid">${data.stock_codes.slice(0, 100).join(', ')}</div>
+                                ${data.stock_codes.length > 100 ? `<p class="more-codes">...等${data.stock_codes.length}个股票代码</p>` : ''}
+                            </div>
+                            <div class="merge-actions">
+                                <button id="startMergeBtn" class="btn btn-primary">
+                                    开始合并所有股票数据
+                                </button>
+                                <div id="mergeProgress" class="progress-container" style="display: none;">
+                                    <div class="progress-info">
+                                        <span>合并进度</span>
+                                        <span class="progress-text">0/${data.stock_codes.length}</span>
+                                    </div>
+                                    <div class="progress-bar-wrapper">
+                                        <div class="progress-bar"></div>
+                                    </div>
+                                </div>
+                                <div id="mergeLog" class="merge-log"></div>
+                                <div id="mergeStats" class="merge-stats" style="display: none;">
+                                    <h4>合并统计</h4>
+                                    <div class="stats-content">
+                                        <p>总股票数: <span id="totalStocks">${data.stock_codes.length}</span></p>
+                                        <p>成功数: <span id="successStocks" class="success">0</span></p>
+                                        <p>失败数: <span id="failedStocks" class="error">0</span></p>
+                                        <p>新增行数: <span id="totalNewLines">0</span></p>
+                                        <p>过滤重复行数: <span id="totalDuplicateLines">0</span></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // 添加合并按钮点击事件
+                    const mergeBtn = document.getElementById('startMergeBtn');
+                    const progressContainer = document.getElementById('mergeProgress');
+                    const progressBar = progressContainer.querySelector('.progress-bar');
+                    const progressText = progressContainer.querySelector('.progress-text');
+                    const mergeLog = document.getElementById('mergeLog');
+                    const mergeStats = document.getElementById('mergeStats');
+                    const successStocksEl = document.getElementById('successStocks');
+                    const failedStocksEl = document.getElementById('failedStocks');
+                    const totalNewLinesEl = document.getElementById('totalNewLines');
+                    const totalDuplicateLinesEl = document.getElementById('totalDuplicateLines');
+                    
+                    // 安全检查
+                    if (mergeBtn && progressContainer && progressBar && progressText && mergeLog) {
+                        mergeBtn.addEventListener('click', async () => {
+                            // 确认合并操作
+                            if (!confirm(`确定要合并 ${data.stock_codes.length} 个股票的数据吗？`)) {
+                                return;
+                            }
+                            
+                            // 禁用按钮，显示进度和统计
+                            mergeBtn.disabled = true;
+                            mergeBtn.innerHTML = '<i class="ri-loader-2-line ri-spin"></i> 合并中...';
+                            progressContainer.style.display = 'block';
+                            mergeStats.style.display = 'block';
+                            mergeLog.innerHTML = '';
+                            
+                            let successCount = 0;
+                            let failCount = 0;
+                            let totalNewLines = 0;
+                            let totalDuplicateLines = 0;
+                            const failedStocks = [];
+                            
+                            try {
+                                // 逐个合并股票数据
+                                for (let i = 0; i < data.stock_codes.length; i++) {
+                                    const stockCode = data.stock_codes[i];
+                                    
+                                    // 更新进度
+                                    const progress = ((i + 1) / data.stock_codes.length) * 100;
+                                    progressBar.style.width = `${progress}%`;
+                                    progressText.textContent = `${i + 1}/${data.stock_codes.length}`;
+                                    
+                                    // 添加日志
+                                    mergeLog.innerHTML += `<div class="log-item processing">正在合并股票 ${stockCode}...</div>`;
+                                    mergeLog.scrollTop = mergeLog.scrollHeight; // 自动滚动到底部
+                                    
+                                    // 调用mergeItem API
+                                    const mergeResponse = await fetch(`${API_BASE}/api/restore/mergeItem`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            main_path: mainPath,
+                                            append_path: appendPath,
+                                            stock_code: stockCode
+                                        })
+                                    });
+                                    
+                                    const mergeData = await mergeResponse.json();
+                                    
+                                    if (mergeData.success) {
+                                        successCount++;
+                                        
+                                        // 累加统计数据
+                                        if (mergeData.new_lines_added) {
+                                            totalNewLines += mergeData.new_lines_added;
+                                        }
+                                        if (mergeData.duplicate_lines_filtered) {
+                                            totalDuplicateLines += mergeData.duplicate_lines_filtered;
+                                        }
+                                        
+                                        // 更新统计显示
+                                        if (successStocksEl) successStocksEl.textContent = successCount;
+                                        if (totalNewLinesEl) totalNewLinesEl.textContent = totalNewLines;
+                                        if (totalDuplicateLinesEl) totalDuplicateLinesEl.textContent = totalDuplicateLines;
+                                        
+                                        mergeLog.innerHTML += `<div class="log-item success">✓ 股票 ${stockCode} 合并成功`;
+                                        if (mergeData.new_lines_added !== undefined) {
+                                            mergeLog.innerHTML += ` (新增: ${mergeData.new_lines_added}行, 过滤: ${mergeData.duplicate_lines_filtered || 0}行)`;
+                                        }
+                                        mergeLog.innerHTML += `</div>`;
+                                    } else {
+                                        failCount++;
+                                        failedStocks.push(stockCode);
+                                        
+                                        // 更新统计显示
+                                        if (failedStocksEl) failedStocksEl.textContent = failCount;
+                                        
+                                        mergeLog.innerHTML += `<div class="log-item error">✗ 股票 ${stockCode} 合并失败: ${mergeData.message || '未知错误'}</div>`;
+                                    }
+                                    
+                                    mergeLog.scrollTop = mergeLog.scrollHeight; // 自动滚动到底部
+                                    
+                                    // 每处理5个股票，短暂暂停一下，避免请求过快
+                                    if ((i + 1) % 5 === 0) {
+                                        await new Promise(resolve => setTimeout(resolve, 100));
+                                    }
+                                }
+                                
+                                // 合并完成，显示结果
+                                let resultMessage = `合并完成：成功 ${successCount} 个，失败 ${failCount} 个`;
+                                if (totalNewLines > 0) {
+                                    resultMessage += `，新增 ${totalNewLines} 行数据，过滤 ${totalDuplicateLines} 行重复数据`;
+                                }
+                                if (failCount > 0) {
+                                    resultMessage += `<br>失败的股票代码：${failedStocks.join(', ')}`;
+                                }
+                                mergeLog.innerHTML += `<div class="log-item summary"><strong>${resultMessage}</strong></div>`;
+                                toast(resultMessage);
+                                
+                            } catch (error) {
+                                console.error('股票合并过程中发生错误:', error);
+                                mergeLog.innerHTML += `<div class="log-item error">合并过程中发生错误: ${error.message}</div>`;
+                                toast(`合并过程中发生错误: ${error.message}`);
+                            } finally {
+                                // 恢复按钮状态
+                                mergeBtn.disabled = false;
+                                mergeBtn.innerHTML = '开始合并所有股票数据';
+                            }
+                        });
+                    }
+                    
+                    // 添加基本样式
+                    const styleId = 'stock-sync-styles';
+                    if (!document.getElementById(styleId)) {
+                        const style = document.createElement('style');
+                        style.id = styleId;
+                        style.textContent = `
+                            .stock-sync-result {
+                                margin-top: 20px;
+                                padding: 20px;
+                                background: #f8f9fa;
+                                border-radius: 8px;
+                                border: 1px solid #e9ecef;
+                            }
+                            .sync-result h3 {
+                                margin-top: 0;
+                                color: #343a40;
+                            }
+                            .result-summary p {
+                                margin: 8px 0;
+                                color: #495057;
+                            }
+                            .stock-codes {
+                                margin: 20px 0;
+                            }
+                            .code-grid {
+                                background: #fff;
+                                padding: 15px;
+                                border-radius: 4px;
+                                border: 1px solid #dee2e6;
+                                white-space: pre-wrap;
+                                word-break: break-all;
+                                max-height: 200px;
+                                overflow-y: auto;
+                            }
+                            .more-codes {
+                                color: #6c757d;
+                                font-style: italic;
+                            }
+                            .merge-actions {
+                                margin-top: 20px;
+                            }
+                            .progress-container {
+                                margin: 20px 0;
+                                padding: 15px;
+                                background: #fff;
+                                border-radius: 4px;
+                                border: 1px solid #dee2e6;
+                            }
+                            .progress-info {
+                                display: flex;
+                                justify-content: space-between;
+                                margin-bottom: 10px;
+                                font-size: 14px;
+                                color: #495057;
+                            }
+                            .progress-bar-wrapper {
+                                height: 8px;
+                                background: #e9ecef;
+                                border-radius: 4px;
+                                overflow: hidden;
+                            }
+                            .progress-bar {
+                                height: 100%;
+                                background: #007bff;
+                                transition: width 0.3s ease;
+                            }
+                            .merge-log {
+                                background: #fff;
+                                border: 1px solid #dee2e6;
+                                border-radius: 4px;
+                                padding: 15px;
+                                max-height: 300px;
+                                overflow-y: auto;
+                                font-family: monospace;
+                                font-size: 14px;
+                                margin: 15px 0;
+                            }
+                            .merge-log .log-item {
+                                margin: 5px 0;
+                                padding: 5px;
+                                border-radius: 3px;
+                            }
+                            .log-item.processing {
+                                color: #007bff;
+                            }
+                            .log-item.success {
+                                color: #28a745;
+                                background: #d4edda;
+                            }
+                            .log-item.error {
+                                color: #dc3545;
+                                background: #f8d7da;
+                            }
+                            .log-item.summary {
+                                margin-top: 15px;
+                                padding: 10px;
+                                background: #e9ecef;
+                                border-radius: 4px;
+                                text-align: center;
+                            }
+                            .merge-stats {
+                                margin-top: 20px;
+                                padding: 15px;
+                                background: #fff;
+                                border: 1px solid #dee2e6;
+                                border-radius: 4px;
+                            }
+                            .merge-stats h4 {
+                                margin-top: 0;
+                                margin-bottom: 10px;
+                                color: #343a40;
+                            }
+                            .stats-content p {
+                                margin: 5px 0;
+                                display: flex;
+                                justify-content: space-between;
+                            }
+                            .stats-content .success {
+                                color: #28a745;
+                                font-weight: bold;
+                            }
+                            .stats-content .error {
+                                color: #dc3545;
+                                font-weight: bold;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }
+                } else {
+                    toast(`同步失败: ${data.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('股票数据同步错误:', error);
+                toast(`同步失败: ${error.message}`);
+            } finally {
+                // 恢复按钮状态
+                startBtn.disabled = false;
+                startBtn.innerHTML = '开始同步';
+            }
+        });
+    }
+})();
+
+// 确保页面加载完成后初始化
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        // 页面加载完成后重新初始化股票同步按钮
+        const initStockSyncFunction = window.initStockSyncButton;
+        if (typeof initStockSyncFunction === 'function') {
+            initStockSyncFunction();
+        }
+    });
+}
 

@@ -10,7 +10,7 @@ import time
 from typing import Dict, List, Tuple, Optional, Union
 import pandas as pd
 from backend.global_config.utils import make_symbol
-
+import akshare as ak
 logger = logging.getLogger(__name__)
 
 
@@ -186,6 +186,7 @@ class AkshareFetcher(DataFetcher):
             # 首先尝试调用 stock_zh_a_daily
             try:
                 logger.debug(f"尝试使用 stock_zh_a_daily 获取股票{code}数据")
+                
                 df = self._retry_wrapper(
                     self.ak.stock_zh_a_daily,
                     symbol=make_symbol(code),
@@ -193,6 +194,14 @@ class AkshareFetcher(DataFetcher):
                     end_date=end_date,
                     adjust=adjust
                 )
+                """
+                df = ak.stock_zh_a_daily(
+                    symbol=make_symbol(code),
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust=adjust
+                )
+                """
                 logger.info(f"成功使用 stock_zh_a_daily 获取股票{code}的日K线数据，时间范围：{start_date}至{end_date}")
                 return df
             except Exception as daily_error:
@@ -274,6 +283,190 @@ class AkshareFetcher(DataFetcher):
             return df
         except Exception as e:
             raise DataFetchError(f"获取申万三级行业数据失败: {str(e)}")
+    
+    def fetch_sw_index_third_cons(self, symbol: Union[str, List[str]]) -> pd.DataFrame:
+        """
+        获取申万三级行业成分股
+        
+        Args:
+            symbol: 行业代码，可以是单个字符串或字符串列表，格式如"850111.SI"
+            
+        Returns:
+            pd.DataFrame: 行业成分股数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.info(f"开始抓取申万三级行业成分股数据，行业代码: {symbol}")
+            df = self._retry_wrapper(self.ak.sw_index_third_cons, symbol=symbol)
+            logger.info(f"成功抓取申万三级行业成分股数据，共{len(df)}条")
+            return df
+        except Exception as e:
+            raise DataFetchError(f"获取申万三级行业成分股数据失败: {str(e)}")
+    
+    def fetch_sw_industry_data(self, industry_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        获取申万行业指标数据
+        
+        Args:
+            industry_code: 申万行业指标代码
+            start_date: 开始日期，格式如'2023-01-01'
+            end_date: 结束日期，格式如'2023-12-31'
+            
+        Returns:
+            pd.DataFrame: 申万行业指标数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.info(f"开始抓取申万行业指标数据，代码: {industry_code}，时间范围: {start_date}至{end_date}")
+            df = self._retry_wrapper(
+                self.ak.sw_index_daily,
+                symbol=industry_code,
+                start_date=start_date,
+                end_date=end_date
+            )
+            logger.info(f"成功抓取申万行业指标数据，共{len(df)}条")
+            return df
+        except Exception as e:
+            raise DataFetchError(f"获取申万行业指标数据失败: {str(e)}")
+    
+    def fetch_sw_index_data(self, index_code: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        获取申万指数数据
+        
+        Args:
+            index_code: 指数代码，None表示更新所有主要指数
+            start_date: 开始日期，格式如'2023-01-01'
+            end_date: 结束日期，格式如'2023-12-31'
+            
+        Returns:
+            pd.DataFrame: 指数数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            # 如果未指定日期范围，设置默认值
+            if not start_date:
+                start_date = "2020-01-01"  # 设置一个合理的默认开始日期
+            if not end_date:
+                end_date = time.strftime("%Y-%m-%d")  # 使用当前日期作为默认结束日期
+            
+            # 定义主要的申万指数代码列表
+            main_sw_indexes = [
+                "801010.SI",  # 农林牧渔
+                "801020.SI",  # 采掘
+                "801030.SI",  # 化工
+                "801040.SI",  # 钢铁
+                "801050.SI",  # 有色金属
+                "801080.SI",  # 电子
+                "801110.SI",  # 家用电器
+                "801120.SI",  # 食品饮料
+                "801130.SI",  # 纺织服装
+                "801140.SI",  # 轻工制造
+                "801150.SI",  # 医药生物
+                "801160.SI",  # 公用事业
+                "801170.SI",  # 交通运输
+                "801180.SI",  # 房地产
+                "801200.SI",  # 商业贸易
+                "801210.SI",  # 休闲服务
+                "801230.SI",  # 综合
+                "801710.SI",  # 建筑材料
+                "801720.SI",  # 建筑装饰
+                "801730.SI",  # 电气设备
+                "801740.SI",  # 国防军工
+                "801750.SI",  # 计算机
+                "801760.SI",  # 传媒
+                "801770.SI",  # 通信
+                "801780.SI",  # 银行
+                "801790.SI",  # 非银金融
+                "801880.SI",  # 汽车
+                "801890.SI"   # 机械设备
+            ]
+            
+            # 确定要获取的指数代码
+            index_codes_to_fetch = []
+            if index_code:
+                # 如果指定了具体的指数代码，则只获取该指数
+                index_codes_to_fetch = [index_code]
+                logger.info(f"开始抓取指定申万指数数据，代码: {index_code}，时间范围: {start_date}至{end_date}")
+            else:
+                # 否则获取所有主要指数
+                index_codes_to_fetch = main_sw_indexes
+                logger.info(f"开始抓取所有主要申万指数数据，共{len(main_sw_indexes)}个指数，时间范围: {start_date}至{end_date}")
+            
+            all_index_data = []
+            
+            # 获取每个指数的数据
+            for code in index_codes_to_fetch:
+                try:
+                    logger.info(f"正在抓取指数 {code} 的数据")
+                    # 使用sw_index_daily函数获取指数数据
+                    df = self._retry_wrapper(
+                        self.ak.sw_index_daily,
+                        symbol=code,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    
+                    # 添加指数代码和名称信息
+                    df['index_code'] = code
+                    
+                    # 添加指数名称（简单处理，实际可能需要更详细的映射）
+                    df['index_name'] = f"申万{code.split('.')[0]}"
+                    
+                    # 重命名列以匹配我们的数据库结构
+                    if 'date' in df.columns:
+                        df = df.rename(columns={
+                            'date': 'trade_date',
+                            'open': 'open_price',
+                            'close': 'close_price',
+                            'high': 'high_price',
+                            'low': 'low_price',
+                            'volume': 'volume',
+                            'amount': 'amount',
+                            'change_pct': 'change_rate',
+                            'turnover_rate': 'turnover_rate',
+                            'pe': 'pe',
+                            'pb': 'pb'
+                        })
+                    
+                    all_index_data.append(df)
+                    logger.info(f"成功抓取指数 {code} 的数据，共{len(df)}条")
+                    
+                    # 添加短暂的延迟以避免频繁调用API
+                    time.sleep(0.5)
+                    
+                except Exception as e:
+                    logger.warning(f"获取指数 {code} 数据失败: {str(e)}")
+                    # 继续处理下一个指数
+                    continue
+            
+            if not all_index_data:
+                raise DataFetchError(f"无法获取任何指数数据")
+            
+            # 合并所有指数数据
+            combined_df = pd.concat(all_index_data, ignore_index=True)
+            logger.info(f"成功获取申万指数数据，共{len(combined_df)}条记录")
+            
+            return combined_df
+            
+        except DataFetchError:
+            raise
+        except Exception as e:
+            raise DataFetchError(f"获取申万指数数据失败: {str(e)}")
 
 
 class DataFetchFactory:
@@ -329,7 +522,7 @@ def get_stock_daily(code: str, start_date: str, end_date: str, adjust: str = "qf
     
 from datetime import datetime, date as date_type
 from typing import Union
-from backend.global_config.file_config import FileConfig
+from backend.global_config.file_config import DataConfig
 
 def is_trading_day(date: Union[str, datetime, date_type]) -> bool:
     """
@@ -362,7 +555,7 @@ def is_trading_day(date: Union[str, datetime, date_type]) -> bool:
         return False
     
     # 先从FileConfig获取交易日历
-    trading_dates = FileConfig.get('trading_dates', None)
+    trading_dates = DataConfig.get('trading_dates', None)
     
     if trading_dates is not None:
         # 如果配置中有交易日历，直接使用
@@ -371,7 +564,7 @@ def is_trading_day(date: Union[str, datetime, date_type]) -> bool:
     
     # 如果配置中没有交易日历，使用akshare获取
     try:
-        import akshare as ak
+        
         df = ak.tool_trade_date_hist_sina()
         if df is None or df.empty:
             raise DataFetchError("akshare返回空数据")
@@ -380,7 +573,7 @@ def is_trading_day(date: Union[str, datetime, date_type]) -> bool:
         trading_dates = set(df.iloc[:, 0].astype(str).tolist())
         
         # 将获取到的交易日历保存到FileConfig中
-        FileConfig.set('trading_dates', list(trading_dates))
+        DataConfig.set('trading_dates', list(trading_dates))
         logger.info(f"已将交易日历保存到配置中")
         
         logger.debug(f"通过akshare获取交易日历，检查日期: {date_str}")
@@ -415,6 +608,56 @@ def get_sw_industry_third_info(**kwargs) -> pd.DataFrame:
     fetcher = DataFetchFactory.get_fetcher(**kwargs)
     return fetcher.fetch_sw_industry_third_info()
 
+def get_sw_index_third_cons(symbol: Union[str, List[str]], **kwargs) -> pd.DataFrame:
+    """
+    获取申万三级行业成分股的便捷方法
+    
+    Args:
+        symbol: 行业代码，可以是单个字符串或字符串列表，格式如"850111.SI"
+        **kwargs: 传递给抓取器的参数
+        
+    Returns:
+        pd.DataFrame: 行业成分股数据
+    """
+    fetcher = DataFetchFactory.get_fetcher(**kwargs)
+    return fetcher.fetch_sw_index_third_cons(symbol)
+
+def get_sw_industry_data(industry_code: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
+    """
+    获取申万行业指标数据的便捷方法
+    
+    Args:
+        industry_code: 申万行业指标代码
+        start_date: 开始日期，格式如'2023-01-01'
+        end_date: 结束日期，格式如'2023-12-31'
+        **kwargs: 传递给抓取器的参数
+        
+    Returns:
+        pd.DataFrame: 申万行业指标数据
+    """
+    fetcher = DataFetchFactory.get_fetcher(**kwargs)
+    return fetcher.fetch_sw_industry_data(industry_code, start_date, end_date)
+
+
+def get_sw_index_data(index_code: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, **kwargs):
+    """
+    获取申万指数数据
+    
+    Args:
+        index_code: 指数代码，None表示更新所有主要指数
+        start_date: 开始日期，格式如'2023-01-01'
+        end_date: 结束日期，格式如'2023-12-31'
+        **kwargs: 其他参数，传递给DataFetchFactory
+    
+    Returns:
+        pd.DataFrame: 指数数据
+    
+    Raises:
+        DataFetchError: 数据抓取失败
+    """
+    fetcher = DataFetchFactory.get_fetcher(**kwargs)
+    return fetcher.fetch_sw_index_data(index_code, start_date, end_date)
+
 # 模块初始化时的设置
 __all__ = [
     'DataFetcher',
@@ -426,5 +669,8 @@ __all__ = [
     'get_sw_industry_first_info',
     'get_sw_industry_second_info',
     'get_sw_industry_third_info',
+    'get_sw_index_third_cons',
+    'get_sw_industry_data',
+    'get_sw_index_data',
     'is_trading_day'
 ]

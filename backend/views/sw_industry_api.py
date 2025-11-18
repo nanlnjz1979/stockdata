@@ -112,8 +112,8 @@ class SWIndustryDataAPI(APIView):
         create_table_sql = """
         create table if not exists sw_industry_data (
             industry_code SYMBOL INDEX,        -- 行业代码，使用SYMBOL类型并创建索引
-            industry_name SYMBOL INDEX,        -- 行业名称，使用SYMBOL类型并创建索引
-            parent_industry SYMBOL INDEX,      -- 上级行业，使用SYMBOL类型并创建索引
+            industry_name SYMBOL ,        -- 行业名称，使用SYMBOL类型并创建索引
+            parent_industry SYMBOL ,      -- 上级行业，使用SYMBOL类型并创建索引
             component_count INT,               -- 成份个数
             static_pe DOUBLE,                  -- 静态市盈率
             ttm_pe DOUBLE,                    -- TTM(滚动)市盈率
@@ -252,49 +252,169 @@ class SWIndustryClassificationAPI(APIView):
                 put_conn(conn)
 
 
-class SWIndustryClassificationAPI(APIView):
+class SWThirdLevelIndustryCodesAPI(APIView):
     """
-    申万行业分类数据查询API
-    调用方式: GET /api/stocks/sw/classification
+    申万三级行业成分股API
+    调用方式: GET /api/stocks/sw/third_level_industry_codes?code=行业代码
+    功能: 获取并保存三级行业的成分股数据
     """
     
-    def get(self, request):
+    def _ensure_stock_table_exists(self, conn):
+        """
+        确保sw_industry_stocks表存在，以股票代码为主键
+        """
+        create_table_sql = """
+        create table if not exists sw_industry_stocks (
+            stock_code SYMBOL INDEX,        -- 股票代码，使用SYMBOL类型并作为主键
+            stock_name SYMBOL,                    -- 股票简称
+            industry_code SYMBOL ,           -- 行业代码
+            include_date DATE,                    -- 纳入时间
+            sw_first_level SYMBOL,                -- 申万1级
+            sw_second_level SYMBOL,               -- 申万2级
+            sw_third_level SYMBOL,                -- 申万3级
+            price DOUBLE,                         -- 价格
+            pe DOUBLE,                            -- 市盈率
+            pe_ttm DOUBLE,                        -- 市盈率ttm
+            pb DOUBLE,                            -- 市净率
+            dividend_yield DOUBLE,                -- 股息率
+            market_cap DOUBLE,                    -- 市值
+            net_profit_growth_0930 DOUBLE,        -- 归母净利润同比增长(09-30)
+            net_profit_growth_0630 DOUBLE,        -- 归母净利润同比增长(06-30)
+            revenue_growth_0930 DOUBLE,           -- 营业收入同比增长(09-30)
+            revenue_growth_0630 DOUBLE,           -- 营业收入同比增长(06-30)
+            update_time TIMESTAMP                 -- 更新时间
+        ) TIMESTAMP(update_time) PARTITION BY MONTH;
+        """
+        
         try:
-            # 获取数据库连接
-            conn = get_conn()
+            cursor = conn.cursor()
+            cursor.execute(create_table_sql)
+            cursor.close()
+            logger.info("确保sw_industry_stocks表存在")
+        except Exception as e:
+            logger.error(f"创建行业成分股表时发生错误: {str(e)}")
+            raise
+    
+    def _save_industry_stocks(self, conn, df, industry_code):
+        """
+        保存行业成分股数据到数据库
+        使用INSERT OR UPDATE语句确保以股票代码为主键的数据更新
+        """
+        # 使用QuestDB的upsert语法
+        insert_sql = """
+        INSERT INTO sw_industry_stocks (
+            stock_code, stock_name, industry_code, include_date, 
+            sw_first_level, sw_second_level, sw_third_level, 
+            price, pe, pe_ttm, pb, dividend_yield, market_cap,
+            net_profit_growth_0930, net_profit_growth_0630,
+            revenue_growth_0930, revenue_growth_0630,
+            update_time
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor = conn.cursor()
+        current_timestamp = datetime.now()
+        
+        try:
+            for _, row in df.iterrows():
+                # 处理数据，将NaN转换为None
+                def safe_convert(value, dtype=float):
+                    if pd.isna(value):
+                        return None
+                    try:
+                        return dtype(value)
+                    except (ValueError, TypeError):
+                        return None
+                
+                # 提取数据，根据实际列名调整
+                stock_code = row.get('股票代码', '')
+                stock_name = row.get('股票简称', '')
+                include_date_str = row.get('纳入时间', '')
+                
+                # 处理日期
+                include_date = None
+                if include_date_str and include_date_str != '—':
+                    try:
+                        include_date = datetime.strptime(include_date_str, '%Y-%m-%d').date()
+                    except ValueError:
+                        include_date = None
+                
+                # 构建参数
+                params = (
+                    stock_code,
+                    stock_name,
+                    industry_code,
+                    include_date,
+                    row.get('申万1级', '') if row.get('申万1级', '') != '—' else None,
+                    row.get('申万2级', '') if row.get('申万2级', '') != '—' else None,
+                    row.get('申万3级', '') if row.get('申万3级', '') != '—' else None,
+                    safe_convert(row.get('价格')),
+                    safe_convert(row.get('市盈率')),
+                    safe_convert(row.get('市盈率ttm')),
+                    safe_convert(row.get('市净率')),
+                    safe_convert(row.get('股息率')),
+                    safe_convert(row.get('市值')),
+                    safe_convert(row.get('归母净利润同比增长(09-30)')),
+                    safe_convert(row.get('归母净利润同比增长(06-30)')),
+                    safe_convert(row.get('营业收入同比增长(09-30)')),
+                    safe_convert(row.get('营业收入同比增长(06-30)')),
+                    current_timestamp
+                )
+                
+                cursor.execute(insert_sql, params)
             
-            # 查询申万行业分类数据
-            query_sql = """
-            SELECT 
-                industry_code,
-                industry_name,
-                parent_industry,
-                component_count,
-                static_pe,
-                ttm_pe,
-                pb_ratio,
-                static_dividend_yield
-            FROM 
-                sw_industry_data
-            ORDER BY 
-                CASE 
-                    WHEN parent_industry = '' THEN 0
-                    ELSE 1
-                END,
-                industry_code
-            """
+            conn.commit()
+            logger.info(f"成功保存行业{industry_code}的成分股数据，共{len(df)}条")
             
-            df = pd.read_sql(query_sql, conn)
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"保存行业{industry_code}的成分股数据时发生错误: {str(e)}")
+            raise
+        finally:
+            cursor.close()
+    
+    def get(self, request):
+        conn = None
+        try:
+            # 获取请求中的code参数
+            code = request.GET.get('code', None)
             
-            # 转换为字典列表
-            result = df.to_dict('records')
-            
-            return Response({
-                "success": True,
-                "message": "查询成功",
-                "data": result
-            }, status=status.HTTP_200_OK)
-            
+            # 如果提供了code参数，获取该行业对应的股票代码
+            if code:
+                # 调用我们封装的函数获取行业成分股
+                from backend.global_config.data_fetch import get_sw_index_third_cons, get_sw_index_data
+                df = get_sw_index_third_cons(symbol=code)
+                
+                # 获取数据库连接并保存数据
+                conn = get_conn()
+                
+
+                # 确保表存在
+                self._ensure_stock_table_exists(conn)
+                
+                # 保存数据到数据库
+                self._save_industry_stocks(conn, df, code)
+                
+                # 转换为字典列表返回
+                result = df.to_dict('records')
+                
+                return Response({
+                    "success": True,
+                    "message": f"成功获取并保存行业{code}的成分股数据",
+                    "data": {
+                        #"stocks": result,
+                        "count": len(result),
+                        "saved_to_db": True
+                    }
+                }, status=status.HTTP_200_OK)
+            else:
+                # 如果没有提供code参数，返回错误信息
+                return Response({
+                    "success": False,
+                    "message": "请提供行业代码参数code",
+                    "data": None
+                }, status=status.HTTP_400_BAD_REQUEST)
+           
         except OperationalError as e:
             logger.error(f"数据库连接失败: {str(e)}")
             return Response({
@@ -302,14 +422,14 @@ class SWIndustryClassificationAPI(APIView):
                 "message": f"数据库连接失败: {str(e)}"
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
-            logger.error(f"查询申万行业分类数据时发生错误: {str(e)}")
+            logger.error(f"查询或保存行业数据时发生错误: {str(e)}")
             import traceback
             traceback.print_exc()
             return Response({
                 "success": False,
-                "message": f"查询失败: {str(e)}"
+                "message": f"操作失败: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             # 归还数据库连接
-            if 'conn' in locals():
+            if conn:
                 put_conn(conn)

@@ -59,14 +59,7 @@ class BaseTask(ABC):
                 'ORM对象需实现 insert_task(task_id, task_type, task_desc, task_params, priority, status)'
             )
         # 检查是否已存在相同 task_type 与 task_params 的记录
-        if hasattr(self.orm, 'list_tasks'):
-            try:
-                existing = self.orm.list_tasks(status="待处理", task_type=self.task_type, task_params=self.params_str)
-                if existing:
-                    logger.info("已存在相同任务，跳过插入: %s", self.task_type)
-                    return existing[0]['task_id']
-            except Exception:
-                pass
+        
         try:
             self.orm.insert_task(
                 self.task_id,

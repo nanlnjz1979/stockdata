@@ -3,15 +3,13 @@ import json
 from typing import Any, Dict, Optional
 
 
-class FileConfig:
+class BaseFileConfig:
     """
-    全局配置管理类
-    配置数据存储在config.json文件中，支持key-value方式存取
-    数据加载到内存中，get操作直接从内存读取，set操作同时更新内存和文件
-    支持直接通过类名调用：FileConfig.set(), FileConfig.get()
+    配置管理基类
+    提供配置文件的读写功能，子类只需设置_config_file属性即可
     """
-    # 配置文件路径
-    _config_file: str = os.path.join(os.path.dirname(__file__), 'config.json')
+    # 配置文件路径 - 由子类设置
+    _config_file: str = ""
     # 内存中的配置数据
     _config_data: Dict[str, Any] = {}
     # 初始化标志
@@ -55,7 +53,7 @@ class FileConfig:
             os.makedirs(os.path.dirname(cls._config_file), exist_ok=True)
             # 写入文件
             with open(cls._config_file, 'w', encoding='utf-8') as f:
-                json.dump(cls._config_data, f, ensure_ascii=False, indent=2)
+                json.dump(cls._config_data, f, ensure_ascii=False, indent=4)
         except Exception as e:
             print(f"保存配置文件失败: {e}")
     
@@ -126,6 +124,26 @@ class FileConfig:
         """
         cls._initialize()
         return cls._config_data.copy()
+
+
+class FileConfig(BaseFileConfig):
+    """
+    全局配置管理类
+    配置数据存储在config.json文件中，支持key-value方式存取
+    数据加载到内存中，get操作直接从内存读取，set操作同时更新内存和文件
+    支持直接通过类名调用：FileConfig.set(), FileConfig.get()
+    """
+    # 配置文件路径
+    _config_file: str = os.path.join(os.path.dirname(__file__), 'config.json')
+
+
+class DataConfig(BaseFileConfig):
+    """
+    数据配置管理类
+    配置数据存储在data_config.json文件中，功能与FileConfig相同
+    """
+    # 配置文件路径 - 使用不同的文件名
+    _config_file: str = os.path.join(os.path.dirname(__file__), 'data.json')
 
 
 # 提供一个便捷的全局实例访问方式

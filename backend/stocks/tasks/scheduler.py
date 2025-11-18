@@ -146,18 +146,32 @@ def build_schedules_from_global_config() -> int:
                 existing.next_run = next_run
                 existing.schedule_type = schedule_type
                 existing.repeats = repeats
-                existing.save()
-                # 打印更新操作的结果
-                print(f"[Scheduler] Schedule updated: {existing.name}, id={existing.id}")
+                try:
+                    existing.save()
+                    # 打印更新操作的结果
+                    print(f"[Scheduler] Schedule updated: {existing.name}, id={existing.id}")
+                except Exception as e:
+                    # 打印保存失败的异常信息
+                    print(f"[Scheduler ERROR] Failed to save schedule: {existing.name}")
+                    print(f"[Scheduler ERROR] Exception: {str(e)}")
+                    import traceback
+                    print(f"[Scheduler ERROR] Traceback: {traceback.format_exc()}")
             else:
                 # 保存schedule函数的返回结果
-                schedule_result = schedule('stocks.tasks.scheduler.run_config_job', cfg_id,
-                         name=name,
-                         schedule_type=schedule_type,
-                         next_run=next_run,
-                         repeats=repeats)
-                # 打印返回结果
-                print(f"[Scheduler] Schedule created with result: {schedule_result}")
+                try:
+                    schedule_result = schedule('stocks.tasks.scheduler.run_config_job', cfg_id,
+                             name=name,
+                             schedule_type=schedule_type,
+                             next_run=next_run,
+                             repeats=repeats)
+                    # 打印返回结果
+                    print(f"[Scheduler] Schedule created with result: {schedule_result}")
+                except Exception as e:
+                    # 打印创建失败的异常信息
+                    print(f"[Scheduler ERROR] Failed to create schedule: {name}")
+                    print(f"[Scheduler ERROR] Exception: {str(e)}")
+                    import traceback
+                    print(f"[Scheduler ERROR] Traceback: {traceback.format_exc()}")
             count += 1
         # 遍历所有已创建的 Schedule 对象并输出信息
         for sch in Schedule.objects.all():

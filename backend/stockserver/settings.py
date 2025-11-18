@@ -83,8 +83,8 @@ Q_CLUSTER = {
     'name': 'stockdata',
     'workers': 2,
     'recycle': 500,
-    'timeout': 60,
-    'retry': 120,
+    'timeout': 600,
+    'retry': 700,  # 修复：retry值必须大于timeout值
     'queue_limit': 50,
     'bulk': 10,
     'catch_up': False,  # 修改为True，允许错过的任务执行

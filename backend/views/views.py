@@ -50,12 +50,6 @@ class TaskListView(APIView):
         except Exception as e:
             return Response({'error': f'缺少依赖: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        host = os.getenv('QDB_HOST', 'localhost')
-        port = int(os.getenv('QDB_PORT', '8812'))
-        user = os.getenv('QDB_USER', 'admin')
-        password = os.getenv('QDB_PASS', 'quest')
-        dbname = os.getenv('QDB_DB', 'qdb')
-
         type_filter = request.query_params.get('task_type') or request.query_params.get('type')
         status_filter = request.query_params.get('status')
         param_contains = request.query_params.get('param_contains') or request.query_params.get('q')
@@ -263,47 +257,20 @@ def _start_full_update_thread():
 from stocks.tasks.QueueUpdateTask import QueueUpdateStartView
 
 class UpdateStatusView(APIView):
-    # 静态数据库连接
-    _static_conn = None
     
     def get(self, request):
-        """返回数据更新相关状态（QuestDB），不依赖SQLite。"""
-        import os
-        import psycopg2
-        from psycopg2 import OperationalError
-        from datetime import datetime
-
-        # QuestDB 连接参数
-        host = os.getenv('QDB_HOST', 'localhost')
-        port = int(os.getenv('QDB_PORT', '8812'))
-        user = os.getenv('QDB_USER', 'admin')
-        password = os.getenv('QDB_PASS', 'quest')
-        dbname = os.getenv('QDB_DB', 'qdb')
+        """返回数据更新相关状态（QuestDB）和连接池状态，不依赖SQLite。"""
+        from backend.db.db_pool import get_conn, put_conn, get_pool_stats
 
         qdb_ok = False
         qdb_error = None
         stock_basic_count = 0
-        finance_count = 0
-        latest_finance_date = None
-        total_codes = 0
-        updated_count = 0
-        recent_updates = []
         conn = None
+        cur = None
 
         try:
-            # 初始化或获取静态连接
-            if UpdateStatusView._static_conn is None or UpdateStatusView._static_conn.closed:
-                UpdateStatusView._static_conn = psycopg2.connect(
-                    host=host, 
-                    port=port, 
-                    user=user, 
-                    password=password, 
-                    dbname=dbname, 
-                    connect_timeout=2
-                )
-                UpdateStatusView._static_conn.autocommit = True
-            
-            conn = UpdateStatusView._static_conn
+            # 使用默认连接池获取连接
+            conn = get_conn()
             cur = conn.cursor()
             qdb_ok = True
             # 统计基础股票数量
@@ -311,68 +278,38 @@ class UpdateStatusView(APIView):
                 cur.execute('select count(*) from stock_basic')
                 r = cur.fetchone()
                 stock_basic_count = int((r and r[0]) or 0)
-                total_codes = stock_basic_count
             except Exception:
                 pass
-            # 已更新股票数量（按日线存在的distinct代码数）
-            try:
-                cur.execute('select count(distinct code) from stock_daily')
-                r = cur.fetchone()
-                updated_count = int((r and r[0]) or 0)
-            except Exception:
-                pass
-            # 最近更新（按最大交易日倒序，取前8）
-            try:
-                cur.execute("""
-                    select d.code, b.name, max(d.trade_date) as last_date
-                    from stock_daily d
-                    left join stock_basic b on d.code=b.code
-                    group by d.code, b.name
-                    order by last_date desc
-                    limit 8
-                """)
-                rows = cur.fetchall() or []
-                recent_updates = [
-                    {
-                        'code': r[0],
-                        'name': r[1],
-                        'last_updated_date': r[2],
-                        'last_run_time': None,
-                    } for r in rows
-                ]
-            except Exception:
-                pass
-        except OperationalError as e:
-            qdb_error = str(e)
         except Exception as e:
             qdb_error = str(e)
+        finally:
+            # 确保游标和连接被正确关闭或归还
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if conn:
+                put_conn(conn)
 
-        # 控制器状态（正在运行时优先使用内存中的计数和进度）
+        # 获取连接池状态
+        pool_stats = get_pool_stats()
+
+        # 控制器状态
         ctrl = _update_ctrl['state'].copy()
-        if ctrl.get('running'):
-            total_codes = ctrl.get('total_codes') or total_codes
-            updated_count = ctrl.get('updated_count') or updated_count
 
         # 队列控制器状态
         queue_ctrl = get_queue_ctrl()['state'].copy()
 
         return Response({
             'stock_basic_count': stock_basic_count,
-            'finance_count': finance_count,
-            'latest_finance_date': latest_finance_date,
-            'total_codes': total_codes,
-            'updated_count': updated_count,
-            'recent_updates': recent_updates,
             'controller': ctrl,
             'queue_controller': queue_ctrl,
             'questdb': {
-                'host': host,
-                'port': port,
-                'user': user,
-                'dbname': dbname,
                 'connected': qdb_ok,
                 'error': qdb_error,
-            }
+            },
+            'connection_pool': pool_stats
         })
 
 class UpdateFullView(APIView):
@@ -389,26 +326,6 @@ class UpdateFullView(APIView):
             'note': '后台执行 akshare 全量更新（日线，可暂停/继续/停止）'
         })
 
-class UpdatePauseView(APIView):
-    def post(self, request):
-        """暂停当前全量更新。"""
-        if _update_ctrl['state']['running'] and not _update_ctrl['state']['paused']:
-            _update_ctrl['state']['paused'] = True
-        return Response({'running': _update_ctrl['state']['running'], 'paused': _update_ctrl['state']['paused']})
-
-class UpdateResumeView(APIView):
-    def post(self, request):
-        """继续当前全量更新。"""
-        if _update_ctrl['state']['running'] and _update_ctrl['state']['paused']:
-            _update_ctrl['state']['paused'] = False
-        return Response({'running': _update_ctrl['state']['running'], 'paused': _update_ctrl['state']['paused']})
-
-class UpdateStopView(APIView):
-    def post(self, request):
-        """停止全量更新（设置停止标记，线程将尽快退出）。"""
-        if _update_ctrl['state']['running']:
-            _update_ctrl['stop_event'].set()
-        return Response({'running': _update_ctrl['state']['running'], 'stopped': _update_ctrl['state']['stopped']})
 
 class QueueUpdatePauseView(APIView):
     def post(self, request):
