@@ -2,10 +2,8 @@ from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.utils import timezone
-from stocks.tasks import get_all_tasks, get_all_schedules, get_task_statistics, get_recent_tasks
 from rest_framework import status
 import os
 from pathlib import Path

@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateFullView, TaskListView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView, QueueUpdateStartView
+from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateFullView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView, QueueUpdateStartView
+from views.task_list_view import TaskListView
 from views.sw_industry_api import SWIndustryDataAPI, SWIndustryClassificationAPI, SWThirdLevelIndustryCodesAPI
 from views.integrity_views import DataIntegrityCheckView, FullIntegrityCheckView, StockFormatStandardizationView
 from views.taskview import TaskMonitorView, QTaskListView, ScheduleListView, RecentTasksView
@@ -9,7 +10,7 @@ from .data.basic import StocksSHView, StocksSZView, StocksBJView
 from .data.dragon_tiger import DragonTigerView
 from views.heatmap import HeatmapDataView
 from views.config_views import ScheduleConfigView, ScheduleApplyView
-from views.restore_backup import GetRestoreStockFiles, RestoreStockData, MergeStockData, MergeStockItem
+from views.restore_backup import GetRestoreStockFiles, RestoreStockData, MergeStockData, MergeStockItem, SwMergeData, MergeSWIndexData
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
 router.register(r'stocks/finance', StockFinanceViewSet, basename='stocks-finance')
@@ -26,7 +27,8 @@ urlpatterns = [
     path('stocks/update/queue/resume', QueueUpdateResumeView.as_view()),
     path('stocks/update/queue/stop', QueueUpdateStopView.as_view()),
     path('stocks/update/queue/start', QueueUpdateStartView.as_view()),
-    path('stocks/tasks', TaskListView.as_view()),
+    path('stocks/tasks/list', TaskListView.as_view()),
+    path('stocks/tasks/retry', TaskListView.as_view()),
     path('configs/schedule', ScheduleConfigView.as_view()),
     path('configs/schedule/apply', ScheduleApplyView.as_view()),  # 立即生效API
     
@@ -58,9 +60,13 @@ urlpatterns = [
       # 股票文件处理相关API
 
     path('restore/get_stock_files', GetRestoreStockFiles.as_view()),
+    path('restore/get_sw_files', GetRestoreStockFiles.as_view()),
     path('restore/process', RestoreStockData.as_view()),# 下载备份文件
 
     path('restore/merge', MergeStockData.as_view()),# 股票数据合并
     path('restore/mergeItem', MergeStockItem.as_view()),# 单个股票数据合并
+
+    path('restore/sw_merge', SwMergeData.as_view()),     # 申万指数合并
+    path('restore/sw_mergeItem', MergeSWIndexData.as_view()), # 申万单个指数合并
     
 ]

@@ -118,7 +118,7 @@ def run_config_job(config_id) -> bool:
 def build_schedules_from_global_config() -> int:
     """读取 QuestDB 的 schedule_configs 并在 django-q 中生成/更新定时任务。返回生成/更新的数量。"""
     conn = None
-    #Schedule.objects.all().delete()
+    Schedule.objects.all().delete()
     try:
         conn = get_conn()
         gc = GlobalConfig(conn)

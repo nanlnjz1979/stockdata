@@ -637,6 +637,7 @@
                     </div>
                   </div>
                 </div>
+                </div><!-- 闭合恢复区域容器 -->
               </div>
             </div>
             
@@ -824,7 +825,14 @@
                 <div class="stat-label">调度任务</div>
               </div>
             </div>
-            <div style="margin-top: 16px; text-align: right;">
+            <div style="margin-top: 16px; text-align: right; display: flex; gap: 12px; justify-content: flex-end; align-items: center;">
+              <label class="toggle-switch" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <span>自动刷新</span>
+                <div class="switch-container">
+                  <input type="checkbox" id="autoRefreshToggle" class="switch-input">
+                  <span class="switch-slider"></span>
+                </div>
+              </label>
               <button class="btn" id="taskMonitorRefresh">刷新</button>
             </div>
           </div>
@@ -859,6 +867,7 @@
               <select id="taskStatusFilter" class="input"><option value="">全部状态</option></select>
               <input id="taskParamSearch" class="input" placeholder="参数包含..." />
               <button class="btn" id="taskApply">应用筛选</button>
+              <button class="btn" id="taskRetryFailed">失败重试</button>
             </div>
           </div>
           <div class="card" id="taskListCard">
@@ -995,28 +1004,103 @@
             
             <!-- 数据库恢复 -->
             <div class="tab-content" id="restore">
-              <div class="status">数据库恢复管理</div>
-              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
-                <input id="backupFileName" type="text" class="input" style="width: 300px;" value="data\daily" placeholder="data\daily" />
-                <button id="restoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
-                <span id="restoreStatus" style="color: #666;">就绪</span>
-              </div>
-              <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
-                <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
-                警告：数据库恢复操作将覆盖当前数据库内容，请确保已做好必要的备份！
-              </div>
-              <div id="restoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                  <span>恢复进度：</span>
-                  <span id="restoreProgressText">0%</span>
+          <div class="status">数据库恢复管理</div>
+                
+                <!-- 恢复区域容器 - 并排显示 -->
+                <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap;">
+                
+                <!-- 股票数据恢复 -->
+                <div style="flex: 1; min-width: 400px; padding: 16px; background-color: #f8f9fa; border-radius: 6px;">
+                  <h4 style="margin-top: 0; margin-bottom: 12px; font-weight: 500;">股票数据恢复</h4>
+                  <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                    <input id="backupFileName" type="text" class="input" style="width: 300px;" value="data\daily" placeholder="data\daily" />
+                    <button id="restoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <span id="restoreStatus" style="color: #666;">就绪</span>
+                  </div>
+                  <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                    <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
+                    警告：数据库恢复操作将覆盖当前数据库内容，请确保已做好必要的备份！
+                  </div>
+                  
+                  <div id="restoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                      <span>恢复进度：</span>
+                      <span id="restoreProgressText">0%</span>
+                    </div>
+                    <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
+                      <div id="restoreProgressBar" style="width: 0%; height: 20px; background-color: #2196F3; transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
                 </div>
-                <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
-                  <div id="restoreProgressBar" style="width: 0%; height: 20px; background-color: #2196F3; transition: width 0.3s ease;"></div>
+                
+                <!-- 申万数据恢复 -->
+                <div style="flex: 1; min-width: 400px; padding: 16px; background-color: #f0f7ff; border-radius: 6px;">
+                  <h4 style="margin-top: 0; margin-bottom: 12px; font-weight: 500;">申万数据恢复</h4>
+                  <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                    <input id="swBackupFileName" type="text" class="input" style="width: 300px;" value="data\sw_index" placeholder="data\sw_index" />
+                    <button id="swRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <span id="swRestoreStatus" style="color: #666;">就绪</span>
+                  </div>
+                  <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                    <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
+                    警告：申万数据恢复操作将覆盖当前申万数据，请确保已做好必要的备份！
+                  </div>
+                  
+                  <div id="swRestoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                      <span>恢复进度：</span>
+                      <span id="swRestoreProgressText">0%</span>
+                    </div>
+                    <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
+                      <div id="swRestoreProgressBar" style="width: 0%; height: 20px; background-color: #4CAF50; transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div id="restoreLog" style="max-height: 300px; overflow-y: auto; background-color: #f5f5f5; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.6;">
-                <!-- 恢复日志将动态显示 -->
-              </div>
+                
+                <!-- 结果显示区域容器 - 与恢复区域并列垂直放置 -->
+                <div style="margin-top: 16px; margin-bottom: 16px; padding: 16px; background-color: #f5f7fa; border-radius: 6px; width: 100%;">
+                
+                <!-- 股票列表显示区域 -->
+                <div style="margin-bottom: 16px;">
+                  <h4 style="margin-bottom: 8px; font-weight: 500;">股票列表</h4>
+                  <div id="stockListContainer" style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 8px; background-color: #fff;">
+                    <div id="stockList" style="display: flex; flex-wrap: wrap; gap: 4px;">
+                      <!-- 股票代码将动态显示 -->
+                      <div class="stock-item placeholder">请点击执行恢复按钮获取股票列表</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 恢复日志显示区域 - 使用listview样式 -->
+                <div>
+                  <h4 style="margin-bottom: 8px; font-weight: 500;">恢复日志</h4>
+                  <div id="restoreLog" class="listview-container">
+                    <div class="listview-header">
+                      <div class="listview-column time">时间</div>
+                      <div class="listview-column stock-code">代码</div>
+                      <div class="listview-column type">类型</div>
+                      <div class="listview-column message">消息</div>
+                      <div class="listview-column status">状态</div>
+                    </div>
+                    <div class="listview-body" style="max-height: 300px; overflow-y: auto;">
+                      <!-- 恢复日志将动态显示为listview项 -->
+                      <div class="listview-item placeholder">
+                        <div class="listview-column time"></div>
+                        <div class="listview-column stock-code"></div>
+                        <div class="listview-column type"></div>
+                        <div class="listview-column message">请点击执行恢复按钮开始恢复操作</div>
+                        <div class="listview-column status"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                </div><!-- 闭合结果显示区域容器 -->
+                
+                <style>
+                  .listview-column.type {
+                    width: 80px;
+                  }
+                </style>
             </div>
             
             <!-- 股票数据同步 -->
@@ -1048,22 +1132,20 @@
             </div>
             
             <!-- 申万数据同步 -->
-            <div class="tab-content" id="sw-sync">
+            <div class="tab-content active" id="sw-sync">
               <div class="status">申万数据同步状态</div>
-              <div id="swSyncStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
-                <div class="stat-card">
-                  <div class="stat-number" id="swSyncTotal">0</div>
-                  <div class="stat-label">总指数数</div>
+              
+              <div style="margin-top: 20px; padding: 20px; background: #fafafa; border-radius: 8px; border: 1px solid #e8e8e8;">
+                <div style="margin-bottom: 16px;">
+                  <label style="display: block; margin-bottom: 8px; font-weight: 500;">主目录</label>
+                  <input type="text" id="mainDirectoryInput" style="width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px;" placeholder="输入主目录路径" value="data\sw_index">
                 </div>
-                <div class="stat-card">
-                  <div class="stat-number" id="swSyncCompleted">0</div>
-                  <div class="stat-label">已同步</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-number" id="swSyncProgress">0%</div>
-                  <div class="stat-label">同步进度</div>
+                <div style="margin-bottom: 16px;">
+                  <label style="display: block; margin-bottom: 8px; font-weight: 500;">追加目录</label>
+                  <input type="text" id="appendDirectoryInput" style="width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px;" placeholder="输入追加目录路径" value="data\sw_index_append">
                 </div>
               </div>
+
               <div style="margin-top: 20px;">
                 <button class="btn" id="startSwSyncBtn">开始同步</button>
                 <div id="swSyncProgress" style="margin-top: 16px; display: none;">

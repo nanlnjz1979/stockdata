@@ -50,34 +50,53 @@ def _get_last_update_date(code: str, conn=None) -> Optional[datetime]:
         logger.warning("获取最后更新日期失败: code=%s, error=%s", code, e)
     return None
 
-
-def _get_stock_basic_from_db(code: str, conn=None) -> Dict[str, Any]:
+#def _get_all_stocks_last_trade_date_cvs() -> Dict[str, datetime]:
+def _get_stock_date_from_db(conn=None) -> Dict[str, datetime]:
     """
-    尝试从数据库获取股票基本信息（如市场）。
-    如果未找到，则返回空字典。
+    从stock_basic表获取股票代码和上市时间。
+    
+    Args:
+        conn: 数据库连接对象
+        
+    Returns:
+        Dict[str, datetime]: 股票代码到上市时间的映射字典
     """
+    result = {}
     if not conn:
-        return {}
+        return result
+    
     try:
         cur = conn.cursor()
-        # 尝试从stock_basic或类似表中获取市场信息
-        # 注意：这里假设有stock_basic表且结构类似Django ORM模型
+        # 查询股票代码和上市时间
         cur.execute(
             """
-            select market 
+            select code, listing_date 
             from stock_basic 
-            where stock_code = %s
-            """,
-            (code,)
+            where listing_date is not null
+            """
         )
-        row = cur.fetchone()
-        if row and row[0]:
-            return {'market': row[0]}
-    except Exception:
-        # 忽略错误，返回默认值
-        pass
-    return {}
-
+        
+        # 处理查询结果
+        for row in cur.fetchall():
+            if row and len(row) >= 2 and row[0]:
+                code = row[0]
+                listing_date = row[1]
+                
+                # 确保listing_date是datetime对象
+                if isinstance(listing_date, str):
+                    try:
+                        listing_date = datetime.strptime(listing_date, '%Y-%m-%d')
+                    except Exception:
+                        # 解析失败则跳过该记录
+                        continue
+                
+                result[code] = listing_date
+        
+        logger.info(f"成功获取{len(result)}只股票的上市时间")
+    except Exception as e:
+        logger.error(f"获取股票上市时间失败: {e}")
+    
+    return result
 
 def _save_to_database(code: str, df, adjust_type: str, conn=None):
     """
@@ -286,6 +305,12 @@ class IncrementalUpdateTask(BaseTask):
         
         if FileConfig.get('data_source') == 'csv' :
             last_trade_dates = _get_all_stocks_last_trade_date_cvs()
+            listing_date = _get_stock_date_from_db(conn=conn)
+            # 获取所有股票的最后交易日日期
+            # 将listing_date中存在但last_trade_dates中不存在的股票补充进去
+            for code, list_date in listing_date.items():
+                if code not in last_trade_dates:
+                    last_trade_dates[code] = list_date
         else:
             last_trade_dates = _get_all_stocks_last_trade_date(conn=conn)
         
@@ -409,6 +434,7 @@ class IncrementalUpdateTask(BaseTask):
                     
                     # 将数据添加到收集列表中
                     collected_data.append((code, df, adj))
+
                     logger.info("已收集数据: %s [%s ~ %s] adjust=%s, 行数: %d", code, start_date, end_date, adj, len(df))
                     result_dict['total_rows'] += len(df)
                 except Exception as e:
