@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateFullView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView, QueueUpdateStartView
 from views.task_list_view import TaskListView
 from views.sw_industry_api import SWIndustryDataAPI, SWIndustryClassificationAPI, SWThirdLevelIndustryCodesAPI
-from views.integrity_views import DataIntegrityCheckView, FullIntegrityCheckView, StockFormatStandardizationView
+from views.integrity_views import DataIntegrityCheckView, FullIntegrityCheckView, CSVStdCheck, StockFormatStandardizationView
 from views.taskview import TaskMonitorView, QTaskListView, ScheduleListView, RecentTasksView
 from .data.daily import DailyDataView
 from .data.basic import StocksSHView, StocksSZView, StocksBJView
@@ -41,7 +41,9 @@ urlpatterns = [
     # 数据完整性检查相关API
     path('stocks/integrity/check', DataIntegrityCheckView.as_view()),  # 完整性检查统计和单股票检查
     path('stocks/integrity/full', FullIntegrityCheckView.as_view()),     # 完整的完整性检查
-    path('stocks/format/standardization', StockFormatStandardizationView.as_view(), name='stock_format_standardization'),    # 数据格式标准化检查
+    path('stocks/format/standardization',  StockFormatStandardizationView.as_view() ),    # 这个替换成原来的
+
+    path('stocks/integrity/csv_check', CSVStdCheck.as_view() ),    # CSV文件数据的格式标准化检查
     
     #股票数据相关API，用来给qweshare的接口调用
     path('stocks/data/daily', DailyDataView.as_view()),# 日线数据
@@ -68,5 +70,4 @@ urlpatterns = [
 
     path('restore/sw_merge', SwMergeData.as_view()),     # 申万指数合并
     path('restore/sw_mergeItem', MergeSWIndexData.as_view()), # 申万单个指数合并
-    
 ]

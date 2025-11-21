@@ -184,6 +184,7 @@ def _start_full_update_thread():
         'ended_at': None,
     })
     from stocks.tasks import DownloadDailyTask, QtasksOrm
+    
     def worker():
         try:
             import sys
@@ -191,17 +192,17 @@ def _start_full_update_thread():
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
             from db.db_pool import get_conn, put_conn
-            from data_pipeline.collector import populate_stock_basic_if_empty, qdb_get_all_basic, sync_basic_to_django
+            
             conn = get_conn()
             
             if not conn:
                 _update_ctrl['state']['error'] = 'QuestDB连接失败'
                 raise RuntimeError('QuestDB连接失败')
-
+         
             
-            populate_stock_basic_if_empty(conn=conn)
-            sync_basic_to_django(conn=conn)
-            basics = qdb_get_all_basic(conn=conn)   #基础股票代码库
+            from backend.global_config.stock_info import StockInfo
+
+            basics = StockInfo.get_all_stocks()    #基础股票代码库
             _update_ctrl['state']['total_codes'] = len(basics)
             
             orm = QtasksOrm(conn)
@@ -259,6 +260,7 @@ class UpdateStatusView(APIView):
     def get(self, request):
         """返回数据更新相关状态（QuestDB）和连接池状态，不依赖SQLite。"""
         from backend.db.db_pool import get_conn, put_conn, get_pool_stats
+        from backend.global_config.stock_info import StockInfo
 
         qdb_ok = False
         qdb_error = None
@@ -271,13 +273,8 @@ class UpdateStatusView(APIView):
             conn = get_conn()
             cur = conn.cursor()
             qdb_ok = True
-            # 统计基础股票数量
-            try:
-                cur.execute('select count(*) from stock_basic')
-                r = cur.fetchone()
-                stock_basic_count = int((r and r[0]) or 0)
-            except Exception:
-                pass
+            # 使用StockInfo获取股票数量
+            stock_basic_count = StockInfo.get_stock_count()
         except Exception as e:
             qdb_error = str(e)
         finally:

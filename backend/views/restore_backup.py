@@ -1,7 +1,6 @@
 from django.http import JsonResponse
 from rest_framework.views import APIView
 import os
-import subprocess
 import json
 from datetime import datetime
 import logging
@@ -18,14 +17,6 @@ DEFAULT_BACKUP_DIR = os.path.join(settings.BASE_DIR, 'data', 'backups')
 def get_backup_dir():
     """获取备份目录"""
     return getattr(settings, 'DB_BACKUP_DIR', DEFAULT_BACKUP_DIR)
-
-
-def ensure_backup_dir_exists():
-    """确保备份目录存在"""
-    backup_dir = get_backup_dir()
-    if not os.path.exists(backup_dir):
-        os.makedirs(backup_dir)
-    return backup_dir
 
 
 # 获取股票代码文件列表API - 类视图实现

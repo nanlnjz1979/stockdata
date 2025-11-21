@@ -382,7 +382,7 @@ class SWThirdLevelIndustryCodesAPI(APIView):
             # 如果提供了code参数，获取该行业对应的股票代码
             if code:
                 # 调用我们封装的函数获取行业成分股
-                from backend.global_config.data_fetch import get_sw_index_third_cons, get_sw_index_data
+                from backend.global_config.data_fetch import get_sw_index_third_cons
                 df = get_sw_index_third_cons(symbol=code)
                 
                 # 获取数据库连接并保存数据

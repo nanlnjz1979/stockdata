@@ -50,53 +50,6 @@ def _get_last_update_date(code: str, conn=None) -> Optional[datetime]:
         logger.warning("获取最后更新日期失败: code=%s, error=%s", code, e)
     return None
 
-#def _get_all_stocks_last_trade_date_cvs() -> Dict[str, datetime]:
-def _get_stock_date_from_db(conn=None) -> Dict[str, datetime]:
-    """
-    从stock_basic表获取股票代码和上市时间。
-    
-    Args:
-        conn: 数据库连接对象
-        
-    Returns:
-        Dict[str, datetime]: 股票代码到上市时间的映射字典
-    """
-    result = {}
-    if not conn:
-        return result
-    
-    try:
-        cur = conn.cursor()
-        # 查询股票代码和上市时间
-        cur.execute(
-            """
-            select code, listing_date 
-            from stock_basic 
-            where listing_date is not null
-            """
-        )
-        
-        # 处理查询结果
-        for row in cur.fetchall():
-            if row and len(row) >= 2 and row[0]:
-                code = row[0]
-                listing_date = row[1]
-                
-                # 确保listing_date是datetime对象
-                if isinstance(listing_date, str):
-                    try:
-                        listing_date = datetime.strptime(listing_date, '%Y-%m-%d')
-                    except Exception:
-                        # 解析失败则跳过该记录
-                        continue
-                
-                result[code] = listing_date
-        
-        logger.info(f"成功获取{len(result)}只股票的上市时间")
-    except Exception as e:
-        logger.error(f"获取股票上市时间失败: {e}")
-    
-    return result
 
 def _save_to_database(code: str, df, adjust_type: str, conn=None):
     """
@@ -302,13 +255,15 @@ class IncrementalUpdateTask(BaseTask):
         self.priority = priority
 
         # 获取所有股票的最后交易日日期
-        
+        from backend.global_config.stock_info import StockInfo
         if FileConfig.get('data_source') == 'csv' :
             last_trade_dates = _get_all_stocks_last_trade_date_cvs()
-            listing_date = _get_stock_date_from_db(conn=conn)
+
+            listing_date = StockInfo.get_all_stocks()
+
             # 获取所有股票的最后交易日日期
             # 将listing_date中存在但last_trade_dates中不存在的股票补充进去
-            for code, list_date in listing_date.items():
+            for code,x,xx, list_date in listing_date.items():
                 if code not in last_trade_dates:
                     last_trade_dates[code] = list_date
         else:
