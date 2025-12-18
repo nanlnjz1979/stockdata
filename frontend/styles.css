@@ -699,3 +699,112 @@ small.muted { color: var(--muted); }
   padding: 0 20px;
   z-index: 1000;
 }
+
+/* 股票同步结果区域样式 */
+.stock-sync-result {
+  display: block;
+  margin-top: 16px;
+  padding: 16px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.sync-result .result-summary {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sync-result h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sync-result p {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.stock-codes {
+  margin-bottom: 16px;
+}
+
+.stock-codes h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.code-grid {
+  padding: 12px;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 150px;
+  overflow-y: auto;
+  word-break: break-all;
+}
+
+.more-codes {
+  margin-top: 8px;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.merge-actions {
+  margin-top: 16px;
+}
+
+.merge-log {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.merge-stats {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: #f0f7ff;
+  border: 1px solid #d0e3ff;
+  border-radius: 6px;
+}
+
+.merge-stats h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.stats-content p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.success {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.error {
+  color: #ef4444;
+  font-weight: 500;
+}

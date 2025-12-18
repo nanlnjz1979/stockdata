@@ -3007,7 +3007,7 @@ const API_BASE = 'http://127.0.0.1:8000';
     }
   }
 
-  // 异常值处理
+  // CSV异常值处理
   function initOutlierHandling() {
     const detectBtn = document.getElementById('detectOutliersBtn');
     const handleBtn = document.getElementById('handleOutliersBtn');
@@ -3015,28 +3015,210 @@ const API_BASE = 'http://127.0.0.1:8000';
     const progressBar = document.getElementById('outlierProgressBar');
     const progressText = document.getElementById('outlierProgressText');
     
-    detectBtn.addEventListener('click', () => {
-      // 显示进度条
-      progressEl.style.display = 'block';
-      progressBar.style.width = '0%';
-      
-      // 模拟异步检测
-      setTimeout(() => {
-        animateProgress(progressBar, progressText, 100, '异常值检测中');
+    // 逐条检测股票函数
+      async function detectStocksOneByOne(stockList, progressBar, progressText) {
+        let processedCount = 0;
+        const totalCount = stockList.length;
+        let successCount = 0;
+        let failedCount = 0;
         
-        // 更新统计数据
-        setTimeout(() => {
-          const detected = 89;
-          const handled = 45;
-          const remaining = 44;
+        // 创建一个显示检测结果的区域
+        const resultContainer = document.getElementById('stockListContent');
+        let resultHtml = '<div style="font-size: 14px;">检测进度:<br></div>';
+        resultContainer.innerHTML = resultHtml;
+        
+        // 遍历股票列表进行检测
+        for (const stockCode of stockList) {
+          try {
+            processedCount++;
+            
+            // 更新进度信息
+            const progressPercentage = Math.floor((processedCount / totalCount) * 100);
+            progressBar.style.width = `${progressPercentage}%`;
+            progressText.textContent = `正在检测 ${stockCode} (${processedCount}/${totalCount})`;
+            
+            // 调用post方法检测单个股票
+            const checkResponse = await fetch(`${API_BASE}/api/stocks/integrity/csv_check`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ stock_code: stockCode })
+            });
+            
+            const checkResult = await checkResponse.json();
+            
+            // 更新检测结果显示
+            if (checkResponse.ok) {
+              successCount++;
+              
+              // 获取检测结果
+              const accuracyCheck = checkResult.accuracy_check || { status: 'unknown' };
+              const logicalCheck = checkResult.logical_check || { status: 'unknown' };
+              const formatCheck = checkResult.format_check || { status: 'unknown' };
+              const suspensionCheck = checkResult.suspension_check || { status: 'unknown' };
+              const enhancedCheck = checkResult.enhanced_check || { status: 'unknown' };
+              
+              // 格式化时间（只显示时分秒）
+              const timestamp = checkResult.timestamp ? new Date(checkResult.timestamp).toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '未知时间';
+              
+              // 构建单行7列的检测结果HTML（带颜色标识和完整错误详情提示）
+              // 处理每个检测结果的错误信息，包含issues字段
+              const getErrorDetail = (check) => {
+                if (check.status !== 'fail') return `${check.status === 'pass' ? '通过' : '未知'}`;
+                
+                let details = [];
+                // 添加错误消息
+                if (check.error_message || check.message) {
+                  details.push(check.error_message || check.message);
+                }
+                
+                // 添加issues信息（如果存在）
+                if (check.issues && Array.isArray(check.issues) && check.issues.length > 0) {
+                  check.issues.forEach((issue, index) => {
+                    if (typeof issue === 'string') {
+                      details.push(`问题${index + 1}: ${issue}`);
+                    } else if (typeof issue === 'object') {
+                      // 尝试提取对象中的有价值信息
+                      const issueStr = Object.entries(issue)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join(', ');
+                      details.push(`问题${index + 1}: ${issueStr}`);
+                    }
+                  });
+                }
+                
+                return details.length > 0 ? details.join('\n') : '检测失败';
+              };
+              
+              resultHtml += `
+                <div class="stock-result-item" style="border-bottom: 1px solid #eee; padding: 8px 0; display: flex; align-items: center; font-size: 12px;">
+                  <div style="width: 10%; font-weight: bold;">${checkResult.stock_code}</div>
+                  <div style="width: 15%;">${checkResult.stock_name}</div>
+                  <div style="width: 10%; text-align: center; padding: 2px; background-color: ${accuracyCheck.status === 'pass' ? '#e8f5e9' : '#ffebee'}; color: ${accuracyCheck.status === 'pass' ? '#2e7d32' : '#c62828'}; border-radius: 3px; cursor: pointer;" title="准确性检测${getErrorDetail(accuracyCheck)}">
+                    ${accuracyCheck.status === 'pass' ? '✓' : accuracyCheck.status === 'fail' ? '✗' : '?'}
+                  </div>
+                  <div style="width: 10%; text-align: center; padding: 2px; background-color: ${logicalCheck.status === 'pass' ? '#e8f5e9' : '#ffebee'}; color: ${logicalCheck.status === 'pass' ? '#2e7d32' : '#c62828'}; border-radius: 3px; cursor: pointer;" title="逻辑性检测${getErrorDetail(logicalCheck)}">
+                    ${logicalCheck.status === 'pass' ? '✓' : logicalCheck.status === 'fail' ? '✗' : '?'}
+                  </div>
+                  <div style="width: 10%; text-align: center; padding: 2px; background-color: ${formatCheck.status === 'pass' ? '#e8f5e9' : '#ffebee'}; color: ${formatCheck.status === 'pass' ? '#2e7d32' : '#c62828'}; border-radius: 3px; cursor: pointer;" title="格式检测${getErrorDetail(formatCheck)}">
+                    ${formatCheck.status === 'pass' ? '✓' : formatCheck.status === 'fail' ? '✗' : '?'}
+                  </div>
+                  <div style="width: 10%; text-align: center; padding: 2px; background-color: ${suspensionCheck.status === 'pass' ? '#e8f5e9' : '#ffebee'}; color: ${suspensionCheck.status === 'pass' ? '#2e7d32' : '#c62828'}; border-radius: 3px; cursor: pointer;" title="停牌检测${getErrorDetail(suspensionCheck)}">
+                    ${suspensionCheck.status === 'pass' ? '✓' : suspensionCheck.status === 'fail' ? '✗' : '?'}
+                  </div>
+                  <div style="width: 15%; text-align: center; padding: 2px; background-color: ${enhancedCheck.status === 'pass' ? '#e8f5e9' : '#ffebee'}; color: ${enhancedCheck.status === 'pass' ? '#2e7d32' : '#c62828'}; border-radius: 3px; cursor: pointer;" title="增强校验${getErrorDetail(enhancedCheck)}">
+                    ${enhancedCheck.status === 'pass' ? '✓' : enhancedCheck.status === 'fail' ? '✗' : '?'}
+                  </div>
+                  <div style="width: 10%; color: #666;">${timestamp}</div>
+                </div>
+              `;
+            } else {
+              failedCount++;
+              // 失败时也保持7列格式，但只显示关键信息
+              resultHtml += `
+                <div class="stock-result-item" style="border-bottom: 1px solid #eee; padding: 8px 0; display: flex; align-items: center; font-size: 12px;">
+                  <div style="width: 10%; font-weight: bold; color: #f44336;">${stockCode}</div>
+                  <div style="width: 15%; color: #f44336;">检测失败</div>
+                  <div style="width: 10%; text-align: center; color: #f44336;">✗</div>
+                  <div style="width: 10%; text-align: center; color: #f44336;">✗</div>
+                  <div style="width: 10%; text-align: center; color: #f44336;">✗</div>
+                  <div style="width: 10%; text-align: center; color: #f44336;">✗</div>
+                  <div style="width: 15%; text-align: center; color: #f44336;">✗</div>
+                  <div style="width: 10%; color: #666; font-size: 11px;">${checkResult.error || '未知错误'}</div>
+                </div>
+              `;
+            }
+            
+            resultContainer.innerHTML = resultHtml;
+            resultContainer.scrollTop = resultContainer.scrollHeight; // 自动滚动到底部
+            
+            // 更新剩余数量
+            document.getElementById('outlierRemaining').textContent = totalCount - processedCount;
+            document.getElementById('outlierHandled').textContent = processedCount;
+            
+            // 短暂延迟，避免请求过于密集
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+          } catch (error) {
+            failedCount++;
+            resultHtml += `<div style="color: #ff9800; font-size: 12px;">! ${stockCode}: 请求错误 - ${error.message}</div>`;
+            resultContainer.innerHTML = resultHtml;
+            resultContainer.scrollTop = resultContainer.scrollHeight;
+          }
+        }
+        
+        // 检测完成后更新UI
+        progressText.textContent = '检测完成';
+        toast(`检测完成: 成功 ${successCount} 只, 失败 ${failedCount} 只`);
+      }
+      
+      detectBtn.addEventListener('click', async () => {
+        try {
+          // 清空并隐藏之前的股票列表
+          const stockListContainer = document.getElementById('stockListContainer');
+          const stockListContent = document.getElementById('stockListContent');
+          stockListContent.textContent = '';
+          stockListContainer.style.display = 'none';
+          
+          // 显示进度条
+          progressEl.style.display = 'block';
+          progressBar.style.width = '0%';
+          progressText.textContent = '正在获取待检测股票列表...';
+        
+        // 调用POST方法获取待检测的股票代码（直接发送空请求体）
+        // 调用GET方法获取待检测的股票代码
+        const postResponse = await fetch(`${API_BASE}/api/stocks/integrity/csv_check`, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!postResponse.ok) {
+          throw new Error(`获取待检测股票失败: ${postResponse.status}`);
+        }
+        
+        // 模拟进度更新
+        progressBar.style.width = '50%';
+        
+        const result = await postResponse.json();
+        
+        // 如果API返回了待检测的股票列表
+        if (result.pending_stocks && result.pending_stocks.length > 0) {
+          const pendingStocks = result.pending_stocks;
+          
+          // 更新统计数据
+          const detected = pendingStocks.length;
+          const handled = 0;
+          const remaining = detected;
           
           document.getElementById('outlierDetected').textContent = detected;
           document.getElementById('outlierHandled').textContent = handled;
           document.getElementById('outlierRemaining').textContent = remaining;
           
-          toast(`异常值检测完成：共检测到${detected}个异常值，其中${handled}个已处理，${remaining}个待处理`);
-        }, 3000);
-      }, 500);
+          // 显示待检测的股票代码
+          console.log('待检测的股票代码:', pendingStocks);
+          toast(`已获取待检测股票列表：共${detected}只股票需要检测`);
+          
+          // 显示股票列表容器
+          const stockListContainer = document.getElementById('stockListContainer');
+          stockListContainer.style.display = 'block';
+          
+          // 滚动到列表区域
+          stockListContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          
+          // 开始逐条检测每个股票
+          await detectStocksOneByOne(pendingStocks, progressBar, progressText);
+        } else {
+          // 如果没有待检测的股票
+          progressBar.style.width = '100%';
+          toast('当前没有需要检测的股票');
+        }
+      } catch (error) {
+        console.error('检测异常值失败:', error);
+        toast(`检测失败: ${error.message}`);
+        progressEl.style.display = 'none';
+      }
     });
     
     handleBtn.addEventListener('click', () => {
@@ -3052,7 +3234,7 @@ const API_BASE = 'http://127.0.0.1:8000';
       
       // 模拟异步处理
       setTimeout(() => {
-        animateProgress(progressBar, progressText, 100, '异常值处理中');
+        animateProgress(progressBar, progressText, 100, 'CSV异常值处理中');
         
         // 更新统计数据
         setTimeout(() => {
@@ -3063,7 +3245,7 @@ const API_BASE = 'http://127.0.0.1:8000';
           document.getElementById('outlierHandled').textContent = handled;
           document.getElementById('outlierRemaining').textContent = remaining;
           
-          toast(`异常值处理完成：已处理所有${handled}个异常值`);
+          toast(`CSV异常值处理完成：已处理所有${handled}个异常值`);
         }, 3000);
       }, 500);
     });
@@ -3090,7 +3272,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         document.getElementById('formatStandardized').textContent = '0';
         document.getElementById('formatNonStandard').textContent = '0';
         
-        // 异常值处理
+        // CSV异常值处理
         document.getElementById('outlierDetected').textContent = '0';
         document.getElementById('outlierHandled').textContent = '0';
         document.getElementById('outlierRemaining').textContent = '0';
@@ -3348,7 +3530,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   loadStatus();
   // 刷新模式相关变量
   let refreshIntervalId = null;
-  let currentRefreshMode = 'auto';
+  let currentRefreshMode = 'manual';
   let currentInterval = 3000; // 默认3秒
   
   // 获取UI元素
@@ -4424,28 +4606,48 @@ function deleteBackup(backupId) {
                         resultArea.id = 'stockSyncResult';
                         resultArea.className = 'stock-sync-result';
                         
-                        // 查找放置位置 - 尝试放在按钮下方
+                        // 添加明确的样式，确保可见
+                        resultArea.style.display = 'block';
+                        resultArea.style.marginTop = '16px';
+                        resultArea.style.padding = '16px';
+                        resultArea.style.backgroundColor = '#f8f9fa';
+                        resultArea.style.border = '1px solid #ddd';
+                        resultArea.style.borderRadius = '6px';
+                        resultArea.style.zIndex = '100';
+                        
+                        // 查找放置位置 - 尝试放在同步按钮下方的容器中
                         const startBtn = document.getElementById('startStockSyncBtn');
                         if (startBtn && startBtn.parentNode) {
-                            startBtn.parentNode.insertBefore(resultArea, startBtn.nextSibling);
+                            // 放在按钮的父容器的末尾，确保在按钮之后
+                            startBtn.parentNode.appendChild(resultArea);
                         } else {
-                            // 否则放在body末尾
-                            document.body.appendChild(resultArea);
+                            // 否则找到stock-sync标签容器并放置在内部
+                            const stockSyncTab = document.getElementById('stock-sync');
+                            if (stockSyncTab) {
+                                stockSyncTab.appendChild(resultArea);
+                            } else {
+                                // 最后方案：放在body末尾
+                                document.body.appendChild(resultArea);
+                            }
                         }
                     }
+                    // 确保元素可见
+                    resultArea.style.display = 'block';
                     
                     // 设置结果区域内容
                     resultArea.innerHTML = `
                         <div class="sync-result">
                             <div class="result-summary">
                                 <h3>同步结果</h3>
-                                <p>主目录文件数: ${data.main_path_count}</p>
-                                <p>追加目录文件数: ${data.append_path_count}</p>
-                                <p>合并后文件数: ${data.total_count}</p>
+                                <div style="display: flex; gap: 20px; margin-top: 12px; background: #f0f7ff; padding: 12px; border-radius: 6px; border: 1px solid #d0e3ff;">
+                                    <p style="margin: 0; color: var(--primary); font-weight: 500;">主目录文件数: ${data.main_path_count}</p>
+                                    <p style="margin: 0; color: var(--primary); font-weight: 500;">追加目录文件数: ${data.append_path_count}</p>
+                                    <p style="margin: 0; color: var(--primary); font-weight: 500;">合并后文件数: ${data.total_count}</p>
+                                </div>
                             </div>
                             <div class="stock-codes">
                                 <h4>股票代码列表:</h4>
-                                <div class="code-grid">${data.stock_codes.slice(0, 100).join(', ')}</div>
+                                <div class="code-grid stats-container overflow-auto" style="max-height: 150px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; margin-top: 10px;">${data.stock_codes.slice(0, 100).join(', ')}</div>
                                 ${data.stock_codes.length > 100 ? `<p class="more-codes">...等${data.stock_codes.length}个股票代码</p>` : ''}
                             </div>
                             <div class="merge-actions">

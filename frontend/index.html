@@ -527,7 +527,7 @@
             <div class="tabs">
               <button class="tab-btn active" data-tab="data-integrity">数据完整性检查</button>
               <button class="tab-btn" data-tab="data-format">数据格式标准化</button>
-              <button class="tab-btn" data-tab="outlier-handling">异常值处理</button>
+              <button class="tab-btn" data-tab="outlier-handling">CSV异常值处理</button>
             </div>
             
             <!-- 数据完整性检查 -->
@@ -699,9 +699,9 @@
               </div>
             </div>
             
-            <!-- 异常值处理 -->
+            <!-- CSV异常值处理 -->
             <div class="tab-content" id="outlier-handling">
-              <div class="status">异常值检测与处理状态</div>
+              <div class="status">CSV异常值检测与处理状态</div>
               <div id="outlierStats" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
                 <div class="stat-card">
                   <div class="stat-number" id="outlierDetected">0</div>
@@ -725,6 +725,32 @@
                   </div>
                   <div id="outlierProgressText" style="margin-top: 8px; font-size: 14px;">处理中...</div>
                 </div>
+                <!-- 股票列表容器 -->
+                <div id="stockListContainer" style="margin-top: 16px; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 16px; display: none; background-color: #fafafa;">
+                  <h4 style="margin-top: 0; margin-bottom: 16px; color: #333;">检测结果列表</h4>
+                  <div style="display: flex; align-items: center; font-weight: bold; padding: 8px 0; border-bottom: 2px solid #ddd; margin-bottom: 8px; font-size: 12px;">
+                    <div style="width: 10%;">股票代码</div>
+                    <div style="width: 15%;">股票名字</div>
+                    <div style="width: 10%; text-align: center;">准确性</div>
+                    <div style="width: 10%; text-align: center;">逻辑性</div>
+                    <div style="width: 10%; text-align: center;">格式</div>
+                    <div style="width: 10%; text-align: center;">停牌</div>
+                    <div style="width: 15%; text-align: center;">增强校验</div>
+                    <div style="width: 10%;">检测时间</div>
+                  </div>
+                  <div id="stockListContent" style="font-family: Arial, sans-serif;">
+                    <!-- 检测结果将动态显示在这里 -->
+                  </div>
+                </div>
+                <style>
+                  /* 股票检测结果样式 */
+                  .stock-result-item {
+                    transition: background-color 0.2s;
+                  }
+                  .stock-result-item:hover {
+                    background-color: rgba(240, 240, 240, 0.6);
+                  }
+                </style>
               </div>
             </div>
             
@@ -752,11 +778,11 @@
                 <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #333;">刷新模式</h4>
                 <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
                   <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="radio" name="refreshMode" value="auto" checked style="cursor: pointer;">
+                    <input type="radio" name="refreshMode" value="auto" style="cursor: pointer;">
                     <span>自动刷新</span>
                   </label>
                   <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="radio" name="refreshMode" value="manual" style="cursor: pointer;">
+                    <input type="radio" name="refreshMode" value="manual" checked style="cursor: pointer;">
                     <span>手动刷新</span>
                   </label>
                 </div>
@@ -1004,7 +1030,7 @@
             
             <!-- 数据库恢复 -->
             <div class="tab-content" id="restore">
-          <div class="status">数据库恢复管理</div>
+            <div class="status">数据库恢复管理</div>
                 
                 <!-- 恢复区域容器 - 并排显示 -->
                 <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap;">
@@ -1057,10 +1083,10 @@
                   </div>
                 </div>
                 
-                <!-- 结果显示区域容器 - 与恢复区域并列垂直放置 -->
+                <!-- RESULTING AREA -->
                 <div style="margin-top: 16px; margin-bottom: 16px; padding: 16px; background-color: #f5f7fa; border-radius: 6px; width: 100%;">
                 
-                <!-- 股票列表显示区域 -->
+                <!-- STOCK LIST -->
                 <div style="margin-bottom: 16px;">
                   <h4 style="margin-bottom: 8px; font-weight: 500;">股票列表</h4>
                   <div id="stockListContainer" style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 8px; background-color: #fff;">
@@ -1071,7 +1097,7 @@
                   </div>
                 </div>
                 
-                <!-- 恢复日志显示区域 - 使用listview样式 -->
+                <!-- RESTORE LOG -->
                 <div>
                   <h4 style="margin-bottom: 8px; font-weight: 500;">恢复日志</h4>
                   <div id="restoreLog" class="listview-container">
@@ -1094,7 +1120,7 @@
                     </div>
                   </div>
                 </div>
-                </div><!-- 闭合结果显示区域容器 -->
+                </div><!-- 闭合RESULTING AREA容器 -->
                 
                 <style>
                   .listview-column.type {
@@ -1102,7 +1128,7 @@
                   }
                 </style>
             </div>
-            
+            </div>
             <!-- 股票数据同步 -->
             <div class="tab-content" id="stock-sync">
               <div class="status">股票数据同步状态</div>
@@ -1132,7 +1158,7 @@
             </div>
             
             <!-- 申万数据同步 -->
-            <div class="tab-content active" id="sw-sync">
+            <div class="tab-content" id="sw-sync">
               <div class="status">申万数据同步状态</div>
               
               <div style="margin-top: 20px; padding: 20px; background: #fafafa; border-radius: 8px; border: 1px solid #e8e8e8;">
