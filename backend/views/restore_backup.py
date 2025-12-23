@@ -10,6 +10,25 @@ import requests
 # 配置日志记录器
 logger = logging.getLogger(__name__)
 
+# 从FileConfig类读取配置
+from global_config.file_config import FileConfig
+
+# 加载配置
+db_config = FileConfig.get('database', {})
+
+# 如果配置为空，设置默认配置（ClickHouse默认配置）
+if not db_config:
+    db_config = {
+        "host": "localhost",
+        "port": 9000,
+        "httpport": 8123,
+        "user": "default",
+        "password": "",
+        "database": "default"
+    }
+    # 保存到配置文件
+    FileConfig.set('database', db_config)
+
 # 数据库备份目录配置 - 可以从settings中读取，这里使用默认值
 DEFAULT_BACKUP_DIR = os.path.join(settings.BASE_DIR, 'data', 'backups')
 
@@ -111,123 +130,81 @@ class GetRestoreStockFiles(APIView):
                 'message': f'获取股票代码失败: {str(e)}'
             }, status=500)
 
-def _analyze_questdb_response(response):
-    """专业分析QuestDB响应，支持JSON格式响应"""
+def _analyze_clickhouse_response(response):
+    """专业分析ClickHouse响应"""
     
-    import re
     if response.status_code == 200:
         resp_text = response.text
         
-        # 首先尝试解析JSON格式响应
+        # ClickHouse的INSERT操作成功时返回空字符串或带有写入行数的响应
+        # 检查响应是否为空或包含成功信息
+        if not resp_text or resp_text.strip() == '':
+            print(f"✅ ClickHouse导入成功: 数据已成功插入")
+            return True
+        
+        # 尝试解析JSON响应
         try:
             resp_json = json.loads(resp_text)
-            # 检查是否是标准的QuestDB JSON响应格式
-            if isinstance(resp_json, dict) and 'status' in resp_json:
-                # 根据status字段判断成功与否
-                if resp_json['status'] == 'OK':
-                    rows_imported = resp_json.get('rowsImported', 0)
-                    rows_rejected = resp_json.get('rowsRejected', 0)
-                    location = resp_json.get('location', '')
-                    
-                    print(f"📊 JSON响应分析: 表名={location}, 导入行数={rows_imported}, 拒绝行数={rows_rejected}")
-                    
-                    # 如果有拒绝的行，认为导入部分失败
-                    if rows_rejected > 0:
-                        print(f"❌ 导入部分失败: {rows_rejected} 行被拒绝")
-                        # 检查列错误
-                        error_columns = []
-                        for col in resp_json.get('columns', []):
-                            if col.get('errors', 0) > 0:
-                                error_columns.append(f"{col['name']}({col['errors']}错误)")
-                        if error_columns:
-                            print(f"❌ 列错误详情: {', '.join(error_columns)}")
-                        return False
-                    # 如果导入行数大于0且没有拒绝的行，则认为成功
-                    elif rows_imported > 0:
-                        print(f"✅ 导入成功: 成功导入 {rows_imported} 行数据到表 {location}")
-                        return True
-                    else:
-                        print(f"⚠️  警告: 没有导入任何数据行")
-                        return False
+            # ClickHouse的JSON响应格式检查
+            if isinstance(resp_json, dict):
+                # 检查是否有error字段
+                if 'error' in resp_json:
+                    print(f"❌ ClickHouse JSON响应错误: {resp_json['error']}")
+                    return False
+                # 检查RowsAffected字段
+                rows_affected = resp_json.get('RowsAffected', 0)
+                if rows_affected > 0:
+                    print(f"✅ ClickHouse导入成功: 成功插入 {rows_affected} 行数据")
+                    return True
                 else:
-                    # status不为OK，解析错误信息
-                    error_msg = resp_json.get('error', resp_text)
-                    print(f"❌ JSON响应错误: {error_msg}")
+                    print(f"⚠️  警告: ClickHouse没有导入任何数据行")
                     return False
         except json.JSONDecodeError:
-            # 不是有效的JSON，继续使用正则表达式解析文本响应
+            # 不是有效的JSON，检查响应文本
             pass
         
-        # 原有逻辑：处理非JSON格式的响应
-        # 优先检查"Rows handled"和"Rows imported"是否相等
-        rows_handled_match = re.search(r'Rows handled\s+\|\s+(\d+)\s+\|', resp_text, re.IGNORECASE)
-        rows_imported_match = re.search(r'Rows imported\s+\|\s+(\d+)\s+\|', resp_text, re.IGNORECASE)
+        # 处理文本响应
+        resp_text = resp_text.strip()
+        if resp_text:
+            # ClickHouse错误响应通常包含详细的错误信息
+            print(f"❌ ClickHouse导入失败: {resp_text}")
+            return False
         
-        if rows_handled_match and rows_imported_match:
-            rows_handled = int(rows_handled_match.group(1))
-            rows_imported = int(rows_imported_match.group(1))
-            
-            print(f"📊 处理行数: {rows_handled}, 导入行数: {rows_imported}")
-            
-            # 如果处理行数和导入行数相同，则认为导入成功
-            if rows_handled == rows_imported and rows_handled > 0:
-                print(f"✅ 导入成功: 成功导入 {rows_imported} 行数据")
-                return True
-            elif rows_handled == 0:
-                print(f"⚠️  警告: 没有处理任何数据行")
-                return False
-            else:
-                print(f"❌ 导入失败: 处理{rows_handled}行，但只成功导入{rows_imported}行")
-                return False
-        
-        # QuestDB 9.1 成功响应详细解析
-        success_cases = [
-            (r'Successfully imported (\d+) rows?', "标准成功导入"),
-            (r'Created (\w+)\s*and data loaded', "表创建并加载"),
-            (r'(\d+)\s*Rows?\s*imported', "行数导入确认"),
-            (r'imported successfully', "成功导入确认")
-        ]
-        
-        for pattern, description in success_cases:
-            match = re.search(pattern, resp_text, re.IGNORECASE)
-            if match:
-                print(f"✅ {description}")
-                if match.groups():
-                    print(f"📊 详细信息: {match.group(0)}")
-                return True
-        
-        # 检查特定错误类型
-        error_cases = [
-            (r'errno=-?\d+', "系统错误"),
-            (r'table.*does not exist', "表不存在"),
-            (r'duplicate column', "列重复"),
-            (r'invalid table name', "无效表名"),
-            (r'malformed CSV', "CSV格式错误"),
-            (r'timestamp parse error', "时间戳解析错误")
-        ]
-        
-        for pattern, error_type in error_cases:
-            if re.search(pattern, resp_text, re.IGNORECASE):
-                print(f"❌ {error_type}: {resp_text}")
-                return False
-        
-        # 未知响应但HTTP 200
-        print(f"⚠️  未知成功响应: {resp_text}")
         return True
-        
     elif response.status_code == 400:
-        print(f"❌ 客户端请求错误: {response.text}")
+        # 客户端请求错误
+        error_msg = response.text
+        try:
+            resp_json = json.loads(response.text)
+            error_msg = resp_json.get('error', error_msg)
+        except json.JSONDecodeError:
+            pass
+        print(f"❌ ClickHouse客户端请求错误: {error_msg}")
         return False
     elif response.status_code == 500:
-        print(f"❌ QuestDB服务器错误: {response.text}")
+        # 服务器错误
+        error_msg = response.text
+        try:
+            resp_json = json.loads(response.text)
+            error_msg = resp_json.get('error', error_msg)
+        except json.JSONDecodeError:
+            pass
+        print(f"❌ ClickHouse服务器错误: {error_msg}")
         return False
     else:
-        print(f"❌ 意外HTTP状态: {response.status_code} - {response.text}")
+        # 其他状态码
+        error_msg = response.text
+        try:
+            resp_json = json.loads(response.text)
+            error_msg = resp_json.get('error', error_msg)
+        except json.JSONDecodeError:
+            pass
+        print(f"❌ ClickHouse意外HTTP状态: {response.status_code} - {error_msg}")
         return False
         
-def import_csv_to_database(csv_file_path, table_name, schema=None, timestamp_col='trade_date', partition_by='DAY', delimiter=',', force_header=True, atomic=True):
+def import_csv_to_database(csv_file_path, table_name, schema=None, timestamp_col='date', partition_by='DAY', delimiter=',', force_header=True, atomic=True):
     """
-    将CSV文件导入到数据库
+    将CSV文件导入到ClickHouse数据库
     
     Args:
         csv_file_path: CSV文件路径
@@ -243,104 +220,89 @@ def import_csv_to_database(csv_file_path, table_name, schema=None, timestamp_col
         tuple: (success, message, data)
     """
     try:
-        import_url = "http://localhost:9000/imp"
+        # 从配置获取主机地址、端口和认证信息
+        db_host = db_config.get('host', 'localhost')
+        http_port = db_config.get('httpport', 8123)
+        user = db_config.get('user', 'default')
+        password = db_config.get('password', '')
+        database = db_config.get('database', 'default')
         
-        # 准备文件上传
+        # ClickHouse的HTTP API端点
+        import_url = f"http://{db_host}:{http_port}/"
+        
+        # 准备文件内容
         with open(csv_file_path, 'rb') as f:
-            files = {
-                'data': (os.path.basename(csv_file_path), f, 'text/csv')
-            }
+            csv_content = f.read()
+        
+        # 准备SQL语句
+        # 使用ClickHouse的INSERT INTO ... FORMAT CSV语法
+        # 注意：SETTINGS必须在FORMAT之前
+        # 使用正确的设置名称：format_csv_allow_double_quotes（不是csv_allow_double_quotes）
+        # 如果提供了schema（列名列表），则使用它指定要插入的列
+        if schema:
+            insert_clause = f"INSERT INTO {table_name} {schema}"
+        else:
+            insert_clause = f"INSERT INTO {table_name}"
             
-            # 准备参数
-            params = {
-                'name': table_name,
-                'timestamp': timestamp_col,
-                'partitionBy': partition_by,
-                'delimiter': delimiter,
-                'forceHeader': str(force_header).lower(),
-                'atomic': str(atomic).lower(),
-                'fmt': 'json'
-            }
-            
-            # 如果提供了schema，则添加到参数中
-            if schema:
-                params['schema'] = schema
-            
-            logger.info(f"调用导入服务: {import_url}，表名: {table_name}")
-            
-            # 发送POST请求到导入服务
-            response = requests.post(
-                import_url,
-                files=files,
-                params=params,
-                timeout=60  # 设置超时时间
-            )
-            
-            # 检查响应状态
-            if response.status_code == 200:
-                # 尝试解析JSON响应以获取详细错误信息
-                error_message = None
-                try:
-                    resp_json = json.loads(response.text)
-                    if isinstance(resp_json, dict):
-                        # 提取详细错误信息
-                        if resp_json.get('status') != 'OK':
-                            error_message = resp_json.get('error', '导入失败')
-                        elif resp_json.get('rowsRejected', 0) > 0:
-                            rows_rejected = resp_json.get('rowsRejected', 0)
-                            rows_imported = resp_json.get('rowsImported', 0)
-                            # 构建错误信息
-                            error_parts = [f"导入部分失败: {rows_rejected} 行被拒绝"]
-                            # 添加列错误详情
-                            error_columns = []
-                            for col in resp_json.get('columns', []):
-                                if col.get('errors', 0) > 0:
-                                    error_columns.append(f"{col['name']}({col['errors']}错误)")
-                            if error_columns:
-                                error_parts.append(f"错误列: {', '.join(error_columns)}")
-                            error_message = '; '.join(error_parts)
-                except json.JSONDecodeError:
-                    # 不是有效的JSON，使用原始文本
-                    pass
-                
-                # 直接使用_analyze_questdb_response函数判断导入是否成功
-                is_success = _analyze_questdb_response(response)
-                if is_success:
-                    logger.info(f"CSV文件 {os.path.basename(csv_file_path)} 导入成功")
-                    return True, "导入成功", {"response_text": response.text}
+        sql = f"{insert_clause} SETTINGS \
+            max_partitions_per_insert_block=1000, \
+            format_csv_allow_double_quotes=1, \
+            format_csv_delimiter=',', \
+            format_csv_allow_single_quotes=0, \
+            input_format_csv_skip_first_lines=1 \
+            FORMAT CSV"
+        
+        logger.info(f"调用ClickHouse导入服务: {import_url}，表名: {table_name}")
+        logger.info(f"执行SQL: {sql}")
+        
+        # 发送POST请求到ClickHouse HTTP API
+        # 对于CSV导入，我们需要将SQL和数据分开处理
+        # 使用URL参数传递query，数据作为请求体
+        response = requests.post(
+            import_url,
+            params={
+                'query': sql,
+                'user': user,
+                'password': password,
+                'database': database
+            },
+            data=csv_content,
+            headers={
+                'Content-Type': 'text/csv'
+            },
+            timeout=600  # 设置超时时间
+        )
+        
+        # 检查响应状态
+        is_success = _analyze_clickhouse_response(response)
+        if is_success:
+            logger.info(f"CSV文件 {os.path.basename(csv_file_path)} 导入ClickHouse成功")
+            return True, "导入成功", {"response_text": response.text}
+        else:
+            # 构建错误信息
+            error_message = f"导入失败: ClickHouse返回错误"
+            try:
+                resp_json = json.loads(response.text)
+                if isinstance(resp_json, dict) and 'error' in resp_json:
+                    error_message = f"导入失败: {resp_json['error']}"
                 else:
-                    # 使用提取的错误信息或默认错误信息
-                    if not error_message:
-                        error_message = f"导入失败: 数据格式可能不匹配或存在错误"
-                    logger.error(f"CSV文件导入失败: {response.text}")
-                    return False, error_message, None
-            else:
-                # 尝试从错误响应中提取更详细的信息
-                error_message = f"导入服务请求失败，状态码: {response.status_code}"
-                try:
-                    error_data = json.loads(response.text)
-                    if isinstance(error_data, dict) and 'error' in error_data:
-                        error_message += f": {error_data['error']}"
-                except (json.JSONDecodeError, KeyError):
-                    # 如果无法解析JSON，使用原始响应
-                    if len(response.text) > 100:
-                        error_message += f": {response.text[:100]}..."
-                    else:
-                        error_message += f": {response.text}"
-                
-                logger.error(f"导入服务请求失败: {error_message}")
-                return False, error_message, None
-                
+                    error_message = f"导入失败: {response.text}"
+            except json.JSONDecodeError:
+                error_message = f"导入失败: {response.text}"
+            
+            logger.error(f"CSV文件导入ClickHouse失败: {response.text}")
+            return False, error_message, None
+            
     except requests.exceptions.ConnectionError:
-        error_message = "无法连接到QuestDB服务，请检查服务是否运行"
-        logger.exception(f"调用导入服务时发生连接异常")
+        error_message = "无法连接到ClickHouse服务，请检查服务是否运行"
+        logger.exception(f"调用ClickHouse导入服务时发生连接异常")
         return False, error_message, None
     except requests.exceptions.Timeout:
-        error_message = "连接QuestDB服务超时，请检查服务响应情况"
-        logger.exception(f"调用导入服务时发生超时异常")
+        error_message = "连接ClickHouse服务超时，请检查服务响应情况"
+        logger.exception(f"调用ClickHouse导入服务时发生超时异常")
         return False, error_message, None
     except requests.exceptions.RequestException as e:
-        logger.exception(f"调用导入服务时发生请求异常")
+        logger.exception(f"调用ClickHouse导入服务时发生请求异常")
         return False, f"导入服务调用失败: {str(e)}", None
     except FileNotFoundError:
         error_message = f"CSV文件不存在: {csv_file_path}"
@@ -357,7 +319,7 @@ class RestoreStockData(APIView):
     处理单个股票代码的API
     URL: /api/restore/process
     方法: POST
-    请求体: {"code": "000001", "path": "data/daily"}
+    请求体: {"code": "000001", "path": "data/daily","table_name":"stock_daily"}
     """
     def post(self, request):
         try:
@@ -424,12 +386,18 @@ class RestoreStockData(APIView):
             
             # 定义股票数据的schema（根据实际CSV格式调整）
             
-            if table_name == 'stock_daily':
-                stock_schema = "code:string,trade_date:timestamp,adjust_type:string,open:double,close:double,high:double,low:double,volume:long,amount:double,turnover:double,outstanding_share:double"
-                timestamp_col="trade_date",
-            if table_name == 'sw_index':
-                stock_schema = "IndustryCode:string,date:timestamp,lyrPe:double,lyrPeQuantile:double,ttmPe:double,ttmPeQuantile:double,pb:double,pbQuantile:double,dvRatio:Ratio:double,dvRatioQuantile:double,dvTtm:double,dvTtmQuantile:double,addLyrPe:double,addLyrPeQuantile:double,addTtmPe:double,addTtmPeQuantile:double,addPb:double,addPbQuantile:double,addDvRatio:Ratio:double,addDvTtm:double,turnoverRate:double,turnoverRateF:double,addTurnoverRate:double,addTurnoverRateF:double,turnoverRateFQuantile:double:double,totalMv:double,close_price:double,addClose:double,middleLyrPe:int,middleLyrPeQuantile:int,middleTtmPe:int,middleTtmPeQuantile:int,middlePb:int,middlePbQuantile:int,belowNetAssetPercent:double,belowNetAssetCount:int,total_count:int,value5:string,value10:string,value20:string,value60:string,indexClose:double,amount:string,amountCongestion:string,amountCongestionQuantile:int"
-                timestamp_col="date",
+            if table_name == 'stock_daily_all' or table_name == 'stock_daily' :
+                stock_schema = "(code, date, open, close, high, low, volume, amount, turnover, outstanding_share)"
+                timestamp_col="date"
+            elif table_name == 'sw_index':
+                stock_schema = "(IndustryCode,date,lyrPe,lyrPeQuantile,ttmPe,ttmPeQuantile,pb,pbQuantile,dvRatio,dvRatioQuantile,dvTtm,dvTtmQuantile,addLyrPe,addLyrPeQuantile,addTtmPe,addTtmPeQuantile,addPb,addPbQuantile,addDvRatio,addDvTtm,turnoverRate,turnoverRateF,addTurnoverRate,addTurnoverRateF,turnoverRateFQuantile,totalMv,close,addClose,middleLyrPe,middleLyrPeQuantile,middleTtmPe,middleTtmPeQuantile,middlePb,middlePbQuantile,belowNetAssetPercent,belowNetAssetCount,total,value5,value10,value20,value60,indexClose,amount,amountCongestion,amountCongestionQuantile)"
+                timestamp_col="date"
+            elif table_name == 'fq_factor':
+                stock_schema = "(code, date, hfq, qfq)"
+                timestamp_col="date"
+            elif table_name == 'stock_fin':
+                stock_schema = "(code, date, CM_NPAS, CM_TOR, CM_OC, CM_NP, CM_NRNP, CM_TSE_NA, CM_GW, CM_NOCF, CM_BEPS, CM_NAPS, CM_CFPS, CM_ROE, CM_ROA, CM_GM, CM_NPM, CM_PER, CM_ALR, PSI_BEPS, PSI_DEPS, PSI_DEPS_LSC, PSI_DNAPS_PSC, PSI_ANAPS_PSC, PSI_NAPS_LSC, PSI_OCFPS, PSI_NCFPS, PSI_FCFFPS, PSI_FCFEPS, PSI_UPPS, PSI_CRPS, PSI_SRPS, PSI_REPS, PSI_ORPS, PSI_TORPS, PSI_EBITPS, PCP_ROE, PCP_DROE, PCP_AROE, PCP_AROE_ENR, PCP_DROE_ENR, PCP_EBITM, PCP_ROA, PCP_ROTC, PCP_ROIC, PCP_AROAAt_EI, PCP_GM, PCP_NPM, PCP_CEPR, PCP_OPM, PCP_ANPMTA, PCP_ANPMTA_IMI, GCP_NPAS, GCP_TOR, GCP_NP, GCP_NRNP, GCP_TORGR, GCP_GRNPAPC, EQL_NOCF_SR, EQL_NOCF_TOR, EQL_CER, EQL_PER, EQL_CSR, EQL_NOCF_NPAPC, EQL_IT_TP, FR_CR, FR_QR, FR_CQR, FR_ALR, FR_EM, FR_EM_IMINA, FR_DER, FR_CashR, OCP_ART, OCP_ARTD, OCP_IT, OCP_ITD, OCP_TAT, OCP_TATD, OCP_CAT, OCP_CATD, OCP_APT)"
+                timestamp_col="date"
 
             # 调用封装的导入函数，使用动态表名
             success, message, data = import_csv_to_database(
@@ -807,7 +775,6 @@ class MergeStockItem(APIView):
                     if main_data[0].strip() != append_data[0].strip():
                         logger.warning(f"股票{stock_code}的两个CSV文件表头不一致")
                 
-                # 创建合并后的数据（保留主目录的表头，添加追加目录的数据行）
                 merged_data = main_data.copy()
                 
                 # 如果追加目录有数据行（跳过表头）
@@ -833,29 +800,24 @@ class MergeStockItem(APIView):
                 # 提取数据行
                 data_lines = merged_data[1:]
                 
-                # 尝试解析表头，找到复权方式和日期列的索引
+                # 尝试解析表头，找到日期列的索引
                 header_parts = header.strip().split(',')
-                adjust_type_idx = -1
-                trade_date_idx = -1
+                date_idx = -1
                 for i, col in enumerate(header_parts):
-                    if 'adjust_type' in col.lower():
-                        adjust_type_idx = i
-                    elif 'trade_date' in col.lower():
-                        trade_date_idx = i
+                    if 'date' in col.lower():
+                        date_idx = i
                 
-                # 如果找到了必要的列，则进行排序
-                if adjust_type_idx >= 0 and trade_date_idx >= 0:
+                # 如果找到了日期列，则进行排序
+                if date_idx >= 0:
                     # 定义排序键函数
                     def sort_key(line):
                         parts = line.strip().split(',')
                         # 处理可能的格式问题
-                        if len(parts) > max(adjust_type_idx, trade_date_idx):
-                            # 复权类型排序（空字符串优先）
-                            adjust_key = parts[adjust_type_idx] if adjust_type_idx < len(parts) else ''
-                            # 日期排序
-                            date_key = parts[trade_date_idx] if trade_date_idx < len(parts) else ''
-                            return (adjust_key, date_key)
-                        return ('', '')
+                        if len(parts) > date_idx:
+                            # 仅按日期排序
+                            date_key = parts[date_idx] if date_idx < len(parts) else ''
+                            return (date_key,)
+                        return ('',)
                     
                     # 对数据行进行排序
                     data_lines.sort(key=sort_key)
@@ -1104,7 +1066,7 @@ class MergeSWIndexData(APIView):
                 header_parts = header.strip().split(',')
                 date_idx = -1
                 for i, col in enumerate(header_parts):
-                    if 'date' in col.lower() or 'trade_date' in col.lower():
+                    if 'date' in col.lower() or 'date' in col.lower():
                         date_idx = i
                         break
                 

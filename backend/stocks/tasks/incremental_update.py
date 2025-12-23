@@ -26,17 +26,11 @@ def _get_last_update_date(code: str, conn=None) -> Optional[datetime]:
     if not conn:
         return None
     try:
-        cur = conn.cursor()
-        # 查找该股票代码的最大日期
-        cur.execute(
-            """
-            select max(trade_date) as last_date 
-            from stock_daily 
-            where code = %s
-            """,
-            (code,)
+        # 使用ClickHouse客户端直接执行，不需要cursor
+        result = conn.execute(
+            f"SELECT max(date) as last_date FROM stock_daily WHERE code = '{code}'"
         )
-        row = cur.fetchone()
+        row = result[0]
         if row and row[0]:
             # 确保返回datetime对象
             last_date = row[0]
@@ -51,14 +45,13 @@ def _get_last_update_date(code: str, conn=None) -> Optional[datetime]:
     return None
 
 
-def _save_to_database(code: str, df, adjust_type: str, conn=None):
+def _save_to_database(code: str, df, conn=None):
     """
     封装数据库保存逻辑
     
     Args:
         code: 股票代码
         df: 日线数据DataFrame
-        adjust_type: 复权类型
         conn: 数据库连接对象
         
     Returns:
@@ -66,18 +59,18 @@ def _save_to_database(code: str, df, adjust_type: str, conn=None):
     """
     try:
         # 调用现有的插入函数
-        _insert_daily(code, df, adjust_type, conn=conn)
-        logger.info("成功将股票 %s 的日线数据插入数据库，调整类型: %s", code, adjust_type)
+        _insert_daily(code, df, conn=conn)
+        logger.info("成功将股票 %s 的日线数据插入数据库", code)
         return True
     except Exception as e:
-        logger.exception("插入日线数据时发生异常: %s, 调整类型: %s, 错误: %s", code, adjust_type, e)
+        logger.exception("插入日线数据时发生异常: %s, 错误: %s", code, e)
         return False
 
 
-def _get_all_stocks_last_trade_date(conn=None) -> Dict[str, datetime]:
+def _get_all_stocks_last_date(conn=None) -> Dict[str, datetime]:
     """
     获取所有股票的最后交易日日期。
-    使用QuestDB的LATEST BY语法高效获取每个股票代码的最新交易日期。
+    使用ClickHouse的GROUP BY和MAX语法高效获取每个股票代码的最新交易日期。
     
     Args:
         conn: 数据库连接对象
@@ -90,31 +83,31 @@ def _get_all_stocks_last_trade_date(conn=None) -> Dict[str, datetime]:
         return result
     
     try:
-        cur = conn.cursor()
-        # 使用QuestDB的LATEST BY语法获取每个股票代码的最新交易日期
-        cur.execute(
+        # 使用ClickHouse客户端直接执行，不需要cursor
+        # 使用GROUP BY和MAX获取每个股票的最新交易日期
+        result_set = conn.execute(
             """
-            SELECT code, trade_date 
-            FROM stock_daily 
-            LATEST BY code
+            SELECT code, MAX(date) as last_date 
+            FROM stock_daily_v
+            GROUP BY code
             """
         )
         
         # 处理查询结果
-        for row in cur.fetchall():
+        for row in result_set:
             if row and len(row) >= 2 and row[0]:
                 code = row[0]
-                trade_date = row[1]
+                last_date = row[1]
                 
-                # 确保trade_date是datetime对象
-                if isinstance(trade_date, str):
+                # 确保last_date是datetime对象
+                if isinstance(last_date, str):
                     try:
-                        trade_date = datetime.strptime(trade_date, '%Y-%m-%d')
+                        last_date = datetime.strptime(last_date, '%Y-%m-%d')
                     except Exception:
                         # 解析失败则跳过该记录
                         continue
                 
-                result[code] = trade_date
+                result[code] = last_date
         
         logger.info(f"成功获取{len(result)}只股票的最后交易日日期")
     except Exception as e:
@@ -123,7 +116,7 @@ def _get_all_stocks_last_trade_date(conn=None) -> Dict[str, datetime]:
     return result
 
 
-def _get_all_stocks_last_trade_date_cvs() -> Dict[str, datetime]:
+def _get_all_stocks_last_date_cvs() -> Dict[str, datetime]:
     """
     从CSV文件中获取所有股票的最后交易日日期。
     扫描data/daily目录下的CSV文件，获取每个股票的最新交易日期。
@@ -172,41 +165,41 @@ def _get_all_stocks_last_trade_date_cvs() -> Dict[str, datetime]:
                 if code in result:
                     continue
                 
-                # 读取CSV文件，只读取trade_date列以提高效率
-                df = pd.read_csv(csv_file, usecols=['trade_date'])
+                # 读取CSV文件，只读取date列以提高效率
+                df = pd.read_csv(csv_file, usecols=['date'])
                 
                 if df.empty:
                     continue
                 logger.info(f"处理CSV文件: {filename}, 股票代码: {code}, 记录数: {len(df)}")
                 
                 # 获取最大的交易日期
-                max_date_str = df['trade_date'].max()
+                max_date_str = df['date'].max()
                 
                 if pd.notna(max_date_str):
                     try:
                         # 将字符串转换为datetime对象
                         # 尝试不同的日期格式
-                        trade_date = None
+                        date = None
                         date_formats = ['%Y-%m-%d', '%Y%m%d', '%Y-%m-%dT%H:%M:%S.%fZ']
                         for fmt in date_formats:
                             try:
-                                trade_date = datetime.strptime(str(max_date_str), fmt)
+                                date = datetime.strptime(str(max_date_str), fmt)
                                 break
                             except ValueError:
                                 continue
                         
                         # 如果标准格式解析失败，尝试处理ISO格式（去掉Z后缀）
-                        if trade_date is None:
+                        if date is None:
                             try:
                                 if str(max_date_str).endswith('Z'):
                                     # 处理ISO格式的日期字符串，去掉Z并使用fromisoformat
                                     iso_date_str = str(max_date_str)[:-1]
-                                    trade_date = datetime.fromisoformat(iso_date_str)
+                                    date = datetime.fromisoformat(iso_date_str)
                             except Exception:
                                 pass
                         
-                        if trade_date:
-                            result[code] = trade_date
+                        if date:
+                            result[code] = date
                     except Exception as e:
                         logger.warning(f"解析日期失败: {max_date_str}, 文件: {filename}, 错误: {e}")
             
@@ -220,8 +213,8 @@ def _get_all_stocks_last_trade_date_cvs() -> Dict[str, datetime]:
     # 记录函数执行完成时间
     end_time = time.time()
     execution_time = end_time - start_time
-    logger.info(f"_get_all_stocks_last_trade_date_cvs函数执行完成，耗时: {execution_time:.2f}秒")
-    print(f"_get_all_stocks_last_trade_date_cvs函数执行完成，耗时: {execution_time:.2f}秒")
+    logger.info(f"_get_all_stocks_last_date_cvs函数执行完成，耗时: {execution_time:.2f}秒")
+    print(f"_get_all_stocks_last_date_cvs函数执行完成，耗时: {execution_time:.2f}秒")
     
     return result
 
@@ -243,7 +236,7 @@ class IncrementalUpdateTask(BaseTask):
     4. 使用ak.stock_zh_a_hist获取数据并写入QuestDB
     """
 
-    def __init__(self, orm):
+    def __init__(self, orm = None):
         # 仅要求传入orm，其余字段在generate()时设置
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
@@ -257,21 +250,21 @@ class IncrementalUpdateTask(BaseTask):
         # 获取所有股票的最后交易日日期
         from backend.global_config.stock_info import StockInfo
         if FileConfig.get('data_source') == 'csv' :
-            last_trade_dates = _get_all_stocks_last_trade_date_cvs()
+            last_dates = _get_all_stocks_last_date_cvs()
 
             listing_date = StockInfo.get_all_stocks()
 
             # 获取所有股票的最后交易日日期
-            # 将listing_date中存在但last_trade_dates中不存在的股票补充进去
+            # 将listing_date中存在但last_dates中不存在的股票补充进去
             for code,x,xx, list_date in listing_date.items():
-                if code not in last_trade_dates:
-                    last_trade_dates[code] = list_date
+                if code not in last_dates:
+                    last_dates[code] = list_date
         else:
-            last_trade_dates = _get_all_stocks_last_trade_date(conn=conn)
+            last_dates = _get_all_stocks_last_date(conn=conn)
         
         # 循环生成每个股票的增量更新任务
         task_ids = []
-        for code, last_date in last_trade_dates.items():
+        for code, last_date in last_dates.items():
             
             # 计算起始日期（最后交易日的次日）
             if last_date:
@@ -409,50 +402,37 @@ class IncrementalUpdateTask(BaseTask):
                 all_data = []
                 for code_data, df_data, adj_data in collected_data:
                     temp_df = df_data.copy()
-                    #print(temp_df)
-                    temp_df['adjust_type'] = adj_data if (adj_data and str(adj_data).strip()) else None
-                    #print(temp_df)
+                    # 移除adjust_type列处理，因为数据库已移除该字段
                     all_data.append(temp_df)
-                    #print(all_data)
                 try:
                     import pandas as pd
                     combined_df = pd.concat(all_data, ignore_index=True)
                     saved_count = save_to_csv(code_data, combined_df, None, file_name=file_name)
                     result_dict['total_saved'] += saved_count
-                    result_dict['success_adj_types'].append(adj_data)
-                    logger.info("已保存数据到文件: %s adjust=%s, 行数: %d", code_data, adj_data, saved_count)
+                    logger.info("已保存数据到文件: %s, 行数: %d", code_data, saved_count)
                 except Exception as e:
-                    logger.exception("保存到文件失败: code=%s, adj=%s, error=%s", code_data, adj_data, e)
-                    result_dict['failed_adj_types'].append((adj_data, str(e)))
+                    logger.exception("保存到文件失败: code=%s, error=%s", code_data, e)
             else:
                 # 只保存到数据库
                 logger.info("开始保存数据到数据库...")
                 
                 for code_data, df_data, adj_data in collected_data:
                     try:
-                        db_success = _save_to_database(code_data, df_data, adj_data, conn=conn_local)
+                        db_success = _save_to_database(code_data, df_data, conn=conn_local)
                         if db_success:
-                            result_dict['success_adj_types'].append(adj_data)
                             result_dict['total_saved'] += len(df_data)
-                            logger.info("成功保存到数据库: %s adjust=%s, 行数: %d", code_data, adj_data, len(df_data))
+                            logger.info("成功保存到数据库: %s, 行数: %d", code_data, len(df_data))
                         else:
-                            logger.error("保存数据库失败: %s adjust=%s", code_data, adj_data)
-                            result_dict['failed_adj_types'].append((adj_data, "保存数据库失败"))
+                            logger.error("保存数据库失败: %s", code_data)
                     except Exception as e:
-                        logger.exception("保存到数据库异常: code=%s, adj=%s, error=%s", code_data, adj_data, e)
-                        result_dict['failed_adj_types'].append((adj_data, str(e)))
+                        logger.exception("保存到数据库异常: code=%s, error=%s", code_data, e)
             
             # 记录结果
             total_saved = result_dict['total_saved']
-            success_count = len(result_dict['success_adj_types'])
-            failed_count = len(result_dict['failed_adj_types'])
             
             save_type = "CSV文件" if to_csv else "数据库"
-            logger.info("任务完成：code=%s, 保存到=%s, total_saved=%s, success_adjust_types=%d, failed_adjust_types=%d", 
-                      code, save_type, total_saved, success_count, failed_count)
-            
-            if failed_count > 0:
-                logger.warning("部分复权类型保存失败: %s", result_dict['failed_adj_types'])
+            logger.info("任务完成：code=%s, 保存到=%s, total_saved=%s", 
+                      code, save_type, total_saved)
             
             return total_saved > 0
                 

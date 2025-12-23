@@ -79,13 +79,17 @@ def run_config_job(config_id) -> bool:
     try:
         # 避免循环依赖，按需导入具体任务实现
         from stocks.tasks import DownloadDailyTask, QtasksOrm, DTBInstTradingTrackerTask
+        from db import get_mongo_conn, put_mongo_conn
     except Exception as e:
         print(f"[Scheduler] Import tasks failed: {e}")
         return False
     conn = None
+    mongo_conn = None
     try:
         conn = get_conn()
-        gc = GlobalConfig(conn)
+        # 使用MongoDB连接初始化GlobalConfig
+        mongo_conn = get_mongo_conn()
+        gc = GlobalConfig(mongo_conn)
         cfg = gc.get_schedule_config(config_id) or {}
         params_raw = cfg.get('params')
         try:
@@ -94,11 +98,11 @@ def run_config_job(config_id) -> bool:
             params = {}
         task_desc = cfg.get('task_desc') or cfg.get('name') or config_id
 
-        # 将任务写入 QuestDB 的 tasks 表，并执行实际逻辑
-        orm = QtasksOrm(conn)
+        # 将任务写入 MongoDB 的 tasks 表，并执行实际逻辑
+        orm = QtasksOrm()
         if config_id in tasks:
             task = tasks[config_id](orm)
-            task.generate(task_type=config_id, task_desc=task_desc, params=params,conn=conn)
+            task.generate(task_type=config_id, task_desc=task_desc, params=params, conn=conn)
             return True
         else:
             # 未知配置ID：仅记录日志
@@ -111,17 +115,21 @@ def run_config_job(config_id) -> bool:
         try:
             if conn:
                 put_conn(conn)
+            if mongo_conn:
+                put_mongo_conn(mongo_conn)
         except Exception:
             pass
 
 
 def build_schedules_from_global_config() -> int:
-    """读取 QuestDB 的 schedule_configs 并在 django-q 中生成/更新定时任务。返回生成/更新的数量。"""
-    conn = None
+    """读取 MongoDB 的 schedule_configs 并在 django-q 中生成/更新定时任务。返回生成/更新的数量。"""
+    mongo_conn = None
     Schedule.objects.all().delete()
     try:
-        conn = get_conn()
-        gc = GlobalConfig(conn)
+        # 使用MongoDB连接初始化GlobalConfig
+        from db import get_mongo_conn, put_mongo_conn
+        mongo_conn = get_mongo_conn()
+        gc = GlobalConfig(mongo_conn)
         cfgs = getattr(gc, '_schedule_configs', {}) or {}
         count = 0
         for cfg_id, cfg in cfgs.items():
@@ -186,8 +194,8 @@ def build_schedules_from_global_config() -> int:
         return count
     finally:
             try:
-                if conn:
-                    put_conn(conn)
+                if mongo_conn:
+                    put_mongo_conn(mongo_conn)
             except Exception:
                 pass
     

@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import threading
 import logging
 import sys
@@ -8,16 +8,14 @@ import datetime
 # 添加项目路径以便导入连接池
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# 迁移自 qdb_orm.py：提供 QuestDB 任务表的轻量 ORM 适配器
-try:
-    from data_pipeline.collector import qdb_connect
-except Exception:
-    qdb_connect = None
+# 导入 MongoDB 连接池和配置工具
+from db import get_mongo_conn, put_mongo_conn
+from global_config import FileConfig
 
 
 class QtasksOrm:
     """
-    线程安全的 QuestDB ORM 适配器：提供任务表的常用操作，供 BaseTask 使用。
+    线程安全的 MongoDB ORM 适配器：提供任务表的常用操作，供 BaseTask 使用。
     实现为单例模式，确保全局唯一实例，避免多线程创建多个实例导致资源浪费。
     增加了线程安全机制，避免多线程并发操作任务表时的数据不一致问题。
     提供：
@@ -37,60 +35,53 @@ class QtasksOrm:
     _instance = None
     _instance_lock = threading.RLock()
     
-    def __new__(cls, conn: Optional[object] = None) -> 'QtasksOrm':
+    def __new__(cls) -> 'QtasksOrm':
         # 使用双重检查锁定模式实现线程安全的单例
         if cls._instance is None:
             with cls._instance_lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     # 初始化连接和锁，只在第一次创建实例时执行
-                    cls._instance._initialize(conn)
-        # 注意：如果提供了外部连接，不更新现有实例的连接，以保持单例的一致性
+                    cls._instance._initialize()
+        # 忽略传入的conn参数，始终使用连接池
         return cls._instance
     
-    def _initialize(self, conn: Optional[object] = None) -> None:
+    @classmethod
+    def get_instance(cls) -> 'QtasksOrm':
+        """
+        类方法：获取单例实例
+        """
+        return cls()
+    
+    def _initialize(self) -> None:
         """
         初始化实例变量，只在第一次创建实例时调用
-        使用专门的数据连接，不用数据库连接池
+        直接使用 MongoDB 连接池获取连接
         """
-        self._external_conn = conn
-        if conn:
-            self._conn = conn
-        else:
-            # 直接使用专门的数据连接，不通过连接池
-            if qdb_connect:
-                self._conn = qdb_connect()
-            else:
-                # 如果qdb_connect不可用，尝试直接导入psycopg2创建连接
-                try:
-                    import psycopg2
-                    import os
-                    host = os.getenv('QDB_HOST', 'localhost')
-                    port = int(os.getenv('QDB_PORT', '8812'))
-                    user = os.getenv('QDB_USER', 'admin')
-                    password = os.getenv('QDB_PASS', 'quest')
-                    dbname = os.getenv('QDB_DB', 'qdb')
-                    self._conn = psycopg2.connect(
-                        host=host,
-                        port=port,
-                        user=user,
-                        password=password,
-                        dbname=dbname,
-                        connect_timeout=2
-                    )
-                except Exception as e:
-                    logging.error(f"创建QuestDB连接失败: {e}")
-                    self._conn = None
+        # 忽略外部传入的conn参数，始终使用连接池
+        self._external_conn = False
+        
+        # 使用 MongoDB 连接池获取连接
+        try:
+            self._conn = get_mongo_conn()
+        except Exception as e:
+            logging.error(f"创建MongoDB连接失败: {e}")
+            self._conn = None
         
         if not self._conn:
-            raise RuntimeError("QuestDB 连接不可用")
+            raise RuntimeError("MongoDB 连接不可用")
+        
+        # 获取 MongoDB 数据库和集合
+        self._db = self._conn[FileConfig.get('mongodb').get('database', 'stockdata')]
+        self._tasks_col = self._db['tasks']
+        
         # 添加线程锁，保证关键操作的线程安全
         self._lock = threading.RLock()
         # 添加任务级别的锁字典，用于细粒度控制
         self._task_locks = {}
         self._task_locks_lock = threading.RLock()
     
-    def __init__(self, conn: Optional[object] = None) -> None:
+    def __init__(self) -> None:
         # 重写__init__避免重复初始化
         pass
         
@@ -103,10 +94,10 @@ class QtasksOrm:
         再次使用该实例时需要重新初始化连接。
         """
         with self._lock:
-            if not self._external_conn and hasattr(self, '_conn') and self._conn:
+            if hasattr(self, '_conn') and self._conn:
                 try:
-                    # 直接关闭连接，不使用连接池
-                    self._conn.close()
+                    # 使用连接池归还连接
+                    put_mongo_conn(self._conn)
                 except Exception:
                     pass
                 self._conn = None
@@ -121,33 +112,28 @@ class QtasksOrm:
         线程安全的任务插入方法
         """
         with self._get_task_lock(task_id):
-            cur = self._conn.cursor()
             try:
-                self._conn.autocommit = False
-                import datetime
-                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                cur.execute(
-                    """
-                    insert into tasks (task_id, task_type, task_desc, task_params, priority, status, created_at)
-                    values (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (task_id, task_type, task_desc, task_params, int(priority or 0), status, now),
-                )
-                try:
-                    self._conn.commit()
-                except Exception:
-                    pass
+                # 准备插入的数据
+                now = datetime.datetime.now()
+                task_data = {
+                    '_id': task_id,
+                    'task_id': task_id,
+                    'task_type': task_type,
+                    'task_desc': task_desc,
+                    'task_params': task_params,
+                    'priority': int(priority or 0),
+                    'status': status,
+                    'created_at': now,
+                    'started_at': None,
+                    'ended_at': None
+                }
+                
+                # 插入到 MongoDB 集合
+                self._tasks_col.insert_one(task_data)
+                logging.debug(f"任务 {task_id} 已插入到 MongoDB")
             except Exception as e:
-                try:
-                    self._conn.rollback()
-                except Exception:
-                    pass
+                logging.error(f"插入任务 {task_id} 失败: {str(e)}")
                 raise e
-            finally:
-                try:
-                    self._conn.autocommit = True
-                except Exception:
-                    pass
 
     def update_task_status(self, task_id: str, status: str) -> None:
         """
@@ -155,127 +141,96 @@ class QtasksOrm:
         """
         # 首先检查并确保连接有效
         with self._lock:
-            if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接不存在或已关闭，重新初始化
                 self._initialize()
-                if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+                if not hasattr(self, '_conn') or not self._conn:
                     logging.error(f"无法获取有效数据库连接，任务 {task_id} 状态更新失败")
                     raise RuntimeError("数据库连接不可用")
         
         with self._get_task_lock(task_id):
-            cur = None
             try:
-                # 再次检查连接状态
-                if self._conn.closed:
-                    logging.error(f"数据库连接已关闭，任务 {task_id} 状态更新失败")
-                    raise RuntimeError("数据库连接已关闭")
-                
-                cur = self._conn.cursor()
-                # 获取当前时间（使用原生datetime对象而非字符串，避免类型转换错误）
+                # 获取当前时间
                 now = datetime.datetime.now()
                 
-                # 执行更新SQL
-                cur.execute(
-                    """
-                    update tasks
-                    set status = %s,
-                        started_at = (case when %s='处理中' and started_at is null then %s else started_at end),
-                        ended_at   = (case when %s in ('成功','失败','已取消') then %s else ended_at end)
-                    where task_id = %s
-                    """,
-                    (status, status, now, status, now, task_id),
+                # 准备更新操作
+                update_fields = {
+                    '$set': {
+                        'status': status
+                    }
+                }
+                
+                # 根据状态更新开始时间和结束时间
+                if status == '处理中':
+                    update_fields['$setOnInsert'] = {
+                        'started_at': now
+                    }
+                elif status in ['成功', '失败', '已取消']:
+                    update_fields['$set']['ended_at'] = now
+                
+                # 执行更新操作
+                result = self._tasks_col.update_one(
+                    {'task_id': task_id},  # 过滤条件
+                    update_fields,         # 更新操作
+                    upsert=False           # 不插入新文档
                 )
                 
-                # 检查是否有行受到影响
-                if cur.rowcount == 0:
+                # 检查是否有文档受到影响
+                if result.matched_count == 0:
                     logging.warning(f"未找到任务 {task_id} 或更新失败")
-                
-                # 提交事务
-                try:
-                    self._conn.commit()
+                else:
                     logging.debug(f"任务 {task_id} 状态已更新为 {status}")
-                except Exception as commit_error:
-                    logging.error(f"提交事务时出错: {str(commit_error)}")
-                    raise
                     
             except Exception as e:
                 # 记录详细错误信息
                 error_msg = f"更新任务 {task_id} 状态时出错: {str(e)}"
                 logging.error(error_msg)
                 print(error_msg)
-                
-                # 尝试回滚事务
-                try:
-                    if hasattr(self, '_conn') and self._conn and not self._conn.closed:
-                        self._conn.rollback()
-                except Exception as rollback_error:
-                    logging.error(f"回滚事务时出错: {str(rollback_error)}")
-                    
                 raise
-                
-            finally:
-                # 确保关闭游标
-                if cur:
-                    try:
-                        cur.close()
-                    except Exception:
-                        pass
-                    
-                # 恢复自动提交模式
-                try:
-                    if hasattr(self, '_conn') and self._conn and not self._conn.closed:
-                        self._conn.autocommit = True
-                except Exception:
-                    pass
 
     # 查询/列表
-    def _row_to_dict(self, cur, row):
-        try:
-            cols = [d[0] for d in (cur.description or [])]
-            return {cols[i]: row[i] for i in range(len(cols))}
-        except Exception:
-            return None
-
-    def get_task(self, task_id: str):
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
-            if not hasattr(self, '_conn') or  self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接已关闭，重新初始化
                 self._initialize()
                 
-            cur = self._conn.cursor()
-            cur.execute(
-                "select task_id, task_type, task_desc, task_params, priority, status from tasks where task_id=%s limit 1",
-                (task_id,),
+            # 使用 MongoDB 查询获取单个任务
+            task = self._tasks_col.find_one(
+                {'task_id': task_id},
+                {'_id': 0, 'task_id': 1, 'task_type': 1, 'task_desc': 1, 'task_params': 1, 'priority': 1, 'status': 1, 'created_at': 1, 'started_at': 1, 'ended_at': 1}
             )
-            row = cur.fetchone()
-            return self._row_to_dict(cur, row) if row else None
+            return task if task else None
 
-    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 10000):
+    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 10000) -> List[Dict[str, Any]]:
         
-        if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+        if not hasattr(self, '_conn') or not self._conn:
             # 连接不存在或已关闭，重新初始化
             self._initialize()
                 
-        cur = self._conn.cursor()
-        where = []
-        params: List[object] = []
+        # 构建 MongoDB 查询条件
+        query = {}
         if status:
-            where.append("status=%s")
-            params.append(status)
+            query['status'] = status
         if task_type:
-            where.append("task_type=%s")
-            params.append(task_type)
+            query['task_type'] = task_type
         if task_params:
-            where.append("task_params=%s")
-            params.append(task_params)
-        where_sql = (" where " + " and ".join(where)) if where else ""
-        # QuestDB 不支持 OFFSET，移除 offset，仅保留 limit
-        cur.execute(
-                f"select task_id, task_type, task_desc, task_params, priority, status, started_at from tasks{where_sql} order by priority desc, started_at desc limit %s",
-                (*params, int(limit or 100)),
-            )
-        rows = cur.fetchall() or []
-        return [self._row_to_dict(cur, r) for r in rows]
+            query['task_params'] = task_params
+        
+        # 构建排序条件
+        sort_order = [
+            ('priority', -1),  # 按优先级降序
+            ('started_at', -1)  # 按开始时间降序
+        ]
+        
+        # 执行查询
+        tasks = self._tasks_col.find(
+            query,
+            {'_id': 0, 'task_id': 1, 'task_type': 1, 'task_desc': 1, 'task_params': 1, 'priority': 1, 'status': 1, 'created_at': 1, 'started_at': 1, 'ended_at': 1}
+        ).sort(sort_order).limit(int(limit or 100))
+        
+        # 将 MongoDB 游标转换为列表
+        return list(tasks)
 
     # 便捷创建/更新/删除
     def create_task(self, task_type: str, task_desc: str = "", task_params: str = "{}", priority: int = 0, status: str = "待处理", task_id: Optional[str] = None) -> str:
@@ -292,111 +247,97 @@ class QtasksOrm:
             return
             
         with self._lock:
-            if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接不存在或已关闭，重新初始化
                 self._initialize()
                 
         with self._get_task_lock(task_id):
-            sets = []
-            params: List[object] = []
+            # 准备更新字段
+            update_fields = {
+                '$set': {}
+            }
+            
             if task_desc is not None:
-                sets.append("task_desc=%s")
-                params.append(task_desc)
+                update_fields['$set']['task_desc'] = task_desc
             if task_params is not None:
-                sets.append("task_params=%s")
-                params.append(task_params)
+                update_fields['$set']['task_params'] = task_params
             if priority is not None:
-                sets.append("priority=%s")
-                params.append(int(priority))
+                update_fields['$set']['priority'] = int(priority)
             if status is not None:
-                sets.append("status=%s")
-                params.append(status)
-                
-            if not sets:
+                update_fields['$set']['status'] = status
+            
+            if not update_fields['$set']:
                 return
-                
-            params.append(task_id)
-            cur = self._conn.cursor()
-            try:
-                self._conn.autocommit = False
-                cur.execute(f"update tasks set {', '.join(sets)} where task_id=%s", tuple(params))
-                try:
-                    self._conn.commit()
-                except Exception:
-                    pass
-            except Exception as e:
-                try:
-                    self._conn.rollback()
-                except Exception:
-                    pass
-                raise e
-            finally:
-                try:
-                    self._conn.autocommit = True
-                except Exception:
-                    pass
+            
+            # 执行更新操作
+            result = self._tasks_col.update_one(
+                {'task_id': task_id},
+                update_fields,
+                upsert=False
+            )
+            
+            # 检查是否有文档受到影响
+            if result.matched_count == 0:
+                logging.warning(f"未找到任务 {task_id} 或更新失败")
+            else:
+                logging.debug(f"任务 {task_id} 已更新")
 
     def delete_task(self, task_id: str) -> None:
         """
         线程安全的任务删除方法
         """
         with self._lock:
-            if not hasattr(self, '_conn') or self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接已关闭，重新初始化
                 self._initialize()
                 
         with self._get_task_lock(task_id):
-            cur = self._conn.cursor()
-            try:
-                self._conn.autocommit = False
-                cur.execute("delete from tasks where task_id=%s", (task_id,))
-                try:
-                    self._conn.commit()
-                except Exception:
-                    pass
+            # 执行删除操作
+            result = self._tasks_col.delete_one({'task_id': task_id})
+            
+            # 检查是否有文档受到影响
+            if result.deleted_count == 0:
+                logging.warning(f"未找到任务 {task_id} 或删除失败")
+            else:
+                logging.debug(f"任务 {task_id} 已删除")
                 
-                # 删除任务后清理对应的任务锁
-                if hasattr(self, '_task_locks_lock') and hasattr(self, '_task_locks'):
-                    with self._task_locks_lock:
-                        if task_id in self._task_locks:
-                            del self._task_locks[task_id]
-                            
-            except Exception as e:
-                try:
-                    self._conn.rollback()
-                except Exception:
-                    pass
-                raise e
-            finally:
-                try:
-                    self._conn.autocommit = True
-                except Exception:
-                    pass
+            # 删除任务后清理对应的任务锁
+            if hasattr(self, '_task_locks_lock') and hasattr(self, '_task_locks'):
+                with self._task_locks_lock:
+                    if task_id in self._task_locks:
+                        del self._task_locks[task_id]
 
     # 选择与认领/完成
-    def next_pending_task(self, task_type: Optional[str] = None):
+    def next_pending_task(self, task_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         线程安全的获取下一个待处理任务方法
         使用全局锁避免多个线程同时获取同一个任务
         """
         with self._lock:
-            if not hasattr(self, '_conn') or not self._conn or self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接不存在或已关闭，重新初始化
                 self._initialize()
                 
-            cur = self._conn.cursor()
-            where = ["status=%s"]
-            params: List[object] = ["待处理"]
+            # 构建查询条件
+            query = {'status': '待处理'}
             if task_type:
-                where.append("task_type=%s")
-                params.append(task_type)
-            where_sql = " and ".join(where)
-            cur.execute(
-                f"select task_id, task_type, task_desc, task_params, priority, status, started_at from tasks where {where_sql} order by priority desc, started_at asc limit 1",
-                tuple(params),
-            )
-            row = cur.fetchone()
-            return self._row_to_dict(cur, row) if row else None
+                query['task_type'] = task_type
+            
+            # 构建排序条件
+            sort_order = [
+                ('priority', -1),  # 按优先级降序
+                ('started_at', 1)  # 按开始时间升序
+            ]
+            
+            # 执行查询
+            cursor = self._tasks_col.find(
+                query,
+                {'_id': 0, 'task_id': 1, 'task_type': 1, 'task_desc': 1, 'task_params': 1, 'priority': 1, 'status': 1, 'created_at': 1, 'started_at': 1, 'ended_at': 1}
+            ).sort(sort_order).limit(1)
+            
+            # 获取第一个结果
+            task = next(cursor, None)
+            return task if task else None
 
     def _get_task_lock(self, task_id: str) -> threading.RLock:
         """获取特定任务ID的锁，用于细粒度的任务级并发控制"""
@@ -416,66 +357,46 @@ class QtasksOrm:
         线程安全的任务认领方法，使用任务级锁和数据库事务确保并发安全
         """
         with self._lock:
-            if not hasattr(self, '_conn') or self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接已关闭，重新初始化
                 self._initialize()
                 
         # 使用任务级别的锁，避免同一任务被多个线程同时认领
         with self._get_task_lock(task_id):
             try:
-                cur = self._conn.cursor()
-                # 开启事务（如果数据库支持）
-                try:
-                    self._conn.autocommit = False
-                except Exception:
-                    pass  # 忽略不支持事务的数据库
-                
-                # 获取当前时间（使用Python的datetime对象而非数据库now()函数，确保时区正确）
+                # 获取当前时间
                 now = datetime.datetime.now()
                 
                 # 乐观锁式认领：仅当当前为待处理时更新为处理中，并记录开始时间
-                cur.execute(
-                    "update tasks set status=%s, started_at=(case when started_at is null then %s else started_at end) "
-                    "where task_id=%s and status=%s", 
-                    ("处理中", now, task_id, "待处理")
+                result = self._tasks_col.update_one(
+                    {
+                        'task_id': task_id,
+                        'status': '待处理'  # 乐观锁条件
+                    },
+                    {
+                        '$set': {
+                            'status': '处理中',
+                            'started_at': now
+                        }
+                    }
                 )
                 
-                # 获取受影响的行数，确认是否成功更新
-                affected_rows = cur.rowcount
-                
-                # 提交事务
-                try:
-                    self._conn.commit()
-                except Exception:
-                    pass
-                finally:
-                    # 恢复自动提交模式
-                    try:
-                        self._conn.autocommit = True
-                    except Exception:
-                        pass
-                
-                # 验证认领结果
-                if affected_rows > 0:
+                # 检查是否有文档受到影响
+                if result.modified_count > 0:
+                    logging.debug(f"任务 {task_id} 已成功认领")
                     return True
                 
                 # 再次检查任务状态以确保结果准确性
                 t = self.get_task(task_id)
-                return bool(t and t.get("status") == "处理中")
+                if t and t.get("status") == "处理中":
+                    logging.debug(f"任务 {task_id} 已被其他线程认领")
+                    return True
+                
+                logging.warning(f"任务 {task_id} 认领失败，可能已被其他线程处理")
+                return False
                 
             except Exception as e:
-                # 发生异常时回滚事务
-                try:
-                    self._conn.rollback()
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        self._conn.autocommit = True
-                    except Exception:
-                        pass
-                
-                logging.error(f"Claim task {task_id} failed: {e}")
+                logging.error(f"认领任务 {task_id} 失败: {str(e)}")
                 return False
 
     def complete_task(self, task_id: str, success: bool) -> None:
@@ -483,7 +404,7 @@ class QtasksOrm:
         线程安全的任务完成方法
         """
         with self._lock:
-            if not hasattr(self, '_conn') or self._conn.closed:
+            if not hasattr(self, '_conn') or not self._conn:
                 # 连接已关闭，重新初始化
                 self._initialize()
                 

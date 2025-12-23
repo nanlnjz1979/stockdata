@@ -8,7 +8,7 @@ import os
 import psycopg2
 from psycopg2 import OperationalError
 from db.db_pool import get_conn, put_conn
-from backend.global_config.data_fetch import get_sw_industry_first_info, get_sw_industry_second_info, get_sw_industry_third_info, DataFetchError
+from global_config.data_fetch import get_sw_industry_first_info, get_sw_industry_second_info, get_sw_industry_third_info, DataFetchError
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -36,20 +36,8 @@ class SWIndustryDataAPI(APIView):
                 # 抓取申万三级行业数据
                 sw_third_df = get_sw_industry_third_info()
                 
-                # 先删除表，然后重建
-                logger.info("开始删除并重建sw_industry_data表")
-                cursor = conn.cursor()
-                try:
-                    # 删除表（如果存在）
-                    cursor.execute("DROP TABLE IF EXISTS sw_industry_data")
-                    conn.commit()
-                    logger.info("成功删除sw_industry_data表")
-                finally:
-                    cursor.close()
-                
-                # 重建表
-                self._ensure_table_exists(conn)
-                logger.info("表重建完成")
+                # 表已经提前创建，跳过表操作
+                logger.info("表已存在，跳过表创建操作")
                 
                 # 存储数据
                 current_timestamp = datetime.now()
@@ -105,88 +93,73 @@ class SWIndustryDataAPI(APIView):
                 "message": f"数据抓取失败: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    def _ensure_table_exists(self, conn):
-        """
-        确保sw_industry_data表存在
-        """
-        create_table_sql = """
-        create table if not exists sw_industry_data (
-            industry_code SYMBOL INDEX,        -- 行业代码，使用SYMBOL类型并创建索引
-            industry_name SYMBOL ,        -- 行业名称，使用SYMBOL类型并创建索引
-            parent_industry SYMBOL ,      -- 上级行业，使用SYMBOL类型并创建索引
-            component_count INT,               -- 成份个数
-            static_pe DOUBLE,                  -- 静态市盈率
-            ttm_pe DOUBLE,                    -- TTM(滚动)市盈率
-            pb_ratio DOUBLE,                  -- 市净率
-            static_dividend_yield DOUBLE,     -- 静态股息率
-            timestamp TIMESTAMP               -- 时间戳，QuestDB推荐使用
-        ) TIMESTAMP(timestamp) PARTITION BY MONTH;
-        """
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(create_table_sql)
-            cursor.close()
-            logger.info("确保sw_industry_data表存在")
-        except Exception as e:
-            logger.error(f"创建表时发生错误: {str(e)}")
-            raise
+
     
     def _save_industry_data(self, conn, df, level_name, timestamp, parent_df=None):
         """
         保存行业数据到数据库
         """
-        insert_sql = """
-        INSERT INTO sw_industry_data (
-            industry_code, industry_name, parent_industry, 
-            component_count, static_pe, ttm_pe, pb_ratio, static_dividend_yield, timestamp
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        
-        cursor = conn.cursor()
         try:
-            for _, row in df.iterrows():
-                # 提取行业代码和名称
-                industry_code = row['行业代码']
-                industry_name = row['行业名称']
-                
-                # 确定上级行业
-                parent_industry = ""  # 一级行业的上级行业为空字符串
-                # 对于二级和三级行业，直接使用已有的上级行业字段
-                if '上级行业' in row and pd.notna(row['上级行业']):
-                    parent_industry = row['上级行业']
-                
-                # 提取财务指标
-                component_count = int(row.get('成份个数', 0))
-                static_pe = float(row.get('静态市盈率', 0))
-                ttm_pe = float(row.get('TTM(滚动)市盈率', row.get('TTM市盈率', 0)))
-                pb_ratio = float(row.get('市净率', 0))
-                static_dividend_yield = float(row.get('静态股息率', 0))
-                
-                # 插入数据
-                params = (
-                    industry_code,
-                    industry_name,
-                    parent_industry,
-                    component_count,
-                    static_pe,
-                    ttm_pe,
-                    pb_ratio,
-                    static_dividend_yield,
-                    timestamp
-                )
-                
-                cursor.execute(insert_sql, params)
+            # 处理DataFrame，添加timestamp列并调整列名
+            insert_df = df.copy()
             
-            conn.commit()
-            logger.info(f"成功存储{level_name}数据，共{len(df)}条")
+            # 确定上级行业
+            insert_df['parent_industry'] = ''  # 一级行业默认空字符串
+            if '上级行业' in insert_df.columns:
+                insert_df['parent_industry'] = insert_df['上级行业'].fillna('')
+            
+            # 提取和转换字段
+            insert_df['component_count'] = insert_df.get('成份个数', 0).fillna(0)
+            insert_df['static_pe'] = insert_df.get('静态市盈率', 0).fillna(0)
+            insert_df['ttm_pe'] = insert_df.get('TTM(滚动)市盈率', insert_df.get('TTM市盈率', 0)).fillna(0)
+            insert_df['pb_ratio'] = insert_df.get('市净率', 0).fillna(0)
+            insert_df['static_dividend_yield'] = insert_df.get('静态股息率', 0).fillna(0)
+            
+            # 重命名列以匹配数据库表结构
+            insert_df = insert_df.rename(columns={
+                '行业代码': 'industry_code',
+                '行业名称': 'industry_name'
+            })
+            
+            # 准备插入数据
+            insert_data = []
+            for _, row in insert_df.iterrows():
+                # 将每一行转换为Python原生类型的元组，确保LowCardinality(String)字段使用空字符串而非None
+                data_row = (
+                    str(row['industry_code']) if row['industry_code'] is not None else '',
+                    str(row['industry_name']) if row['industry_name'] is not None else '',
+                    str(row['parent_industry']) if row['parent_industry'] is not None else '',
+                    int(row['component_count']),
+                    float(row['static_pe']),
+                    float(row['ttm_pe']),
+                    float(row['pb_ratio']),
+                    float(row['static_dividend_yield']),
+                    timestamp  # 已经是Python datetime类型
+                )
+                insert_data.append(data_row)
+            
+            # 使用execute方法批量插入数据
+            if insert_data:
+                # ClickHouse驱动直接接受数据列表，不需要手动构建SQL
+                insert_sql = """
+                INSERT INTO sw_industry_data (
+                    industry_code, industry_name, parent_industry, component_count, 
+                    static_pe, ttm_pe, pb_ratio, static_dividend_yield, timestamp
+                ) VALUES
+                """
+                
+                # 直接将数据列表传递给execute方法
+                conn.execute(insert_sql, insert_data)
+            
+            # ClickHouse自动提交，不需要显式commit
+            logger.info(f"成功存储{level_name}数据，共{len(insert_data)}条")
             
         except Exception as e:
-            conn.rollback()
+            # ClickHouse不需要显式rollback
             logger.error(f"存储{level_name}数据时发生错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise
-        finally:
-            cursor.close()
 
 
 class SWIndustryClassificationAPI(APIView):
@@ -212,7 +185,7 @@ class SWIndustryClassificationAPI(APIView):
                 pb_ratio,
                 static_dividend_yield
             FROM 
-                sw_industry_data
+                sw_industry_data_v
             ORDER BY 
                 CASE 
                     WHEN parent_industry = '' THEN 0
@@ -221,7 +194,15 @@ class SWIndustryClassificationAPI(APIView):
                 industry_code
             """
             
-            df = pd.read_sql(query_sql, conn)
+            # 使用ClickHouse Client的execute方法查询数据
+            rows = conn.execute(query_sql)
+            
+            # 定义列名
+            columns = ['industry_code', 'industry_name', 'parent_industry', 'component_count', 
+                     'static_pe', 'ttm_pe', 'pb_ratio', 'static_dividend_yield']
+            
+            # 创建DataFrame
+            df = pd.DataFrame(rows, columns=columns)
             
             # 转换为字典列表
             result = df.to_dict('records')
@@ -259,79 +240,21 @@ class SWThirdLevelIndustryCodesAPI(APIView):
     功能: 获取并保存三级行业的成分股数据
     """
     
-    def _ensure_stock_table_exists(self, conn):
-        """
-        确保sw_industry_stocks表存在，以股票代码为主键
-        """
-        create_table_sql = """
-        create table if not exists sw_industry_stocks (
-            stock_code SYMBOL INDEX,        -- 股票代码，使用SYMBOL类型并作为主键
-            stock_name SYMBOL,                    -- 股票简称
-            industry_code SYMBOL ,           -- 行业代码
-            include_date DATE,                    -- 纳入时间
-            sw_first_level SYMBOL,                -- 申万1级
-            sw_second_level SYMBOL,               -- 申万2级
-            sw_third_level SYMBOL,                -- 申万3级
-            price DOUBLE,                         -- 价格
-            pe DOUBLE,                            -- 市盈率
-            pe_ttm DOUBLE,                        -- 市盈率ttm
-            pb DOUBLE,                            -- 市净率
-            dividend_yield DOUBLE,                -- 股息率
-            market_cap DOUBLE,                    -- 市值
-            net_profit_growth_0930 DOUBLE,        -- 归母净利润同比增长(09-30)
-            net_profit_growth_0630 DOUBLE,        -- 归母净利润同比增长(06-30)
-            revenue_growth_0930 DOUBLE,           -- 营业收入同比增长(09-30)
-            revenue_growth_0630 DOUBLE,           -- 营业收入同比增长(06-30)
-            update_time TIMESTAMP                 -- 更新时间
-        ) TIMESTAMP(update_time) PARTITION BY MONTH;
-        """
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute(create_table_sql)
-            cursor.close()
-            logger.info("确保sw_industry_stocks表存在")
-        except Exception as e:
-            logger.error(f"创建行业成分股表时发生错误: {str(e)}")
-            raise
+
     
     def _save_industry_stocks(self, conn, df, industry_code):
         """
         保存行业成分股数据到数据库
-        使用INSERT OR UPDATE语句确保以股票代码为主键的数据更新
+        使用批量插入方式提高性能
         """
-        # 使用QuestDB的upsert语法
-        insert_sql = """
-        INSERT INTO sw_industry_stocks (
-            stock_code, stock_name, industry_code, include_date, 
-            sw_first_level, sw_second_level, sw_third_level, 
-            price, pe, pe_ttm, pb, dividend_yield, market_cap,
-            net_profit_growth_0930, net_profit_growth_0630,
-            revenue_growth_0930, revenue_growth_0630,
-            update_time
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        
-        cursor = conn.cursor()
-        current_timestamp = datetime.now()
-        
         try:
+            # 准备插入数据
+            insert_data = []
+            current_time = datetime.now()
+            
             for _, row in df.iterrows():
-                # 处理数据，将NaN转换为None
-                def safe_convert(value, dtype=float):
-                    if pd.isna(value):
-                        return None
-                    try:
-                        return dtype(value)
-                    except (ValueError, TypeError):
-                        return None
-                
-                # 提取数据，根据实际列名调整
-                stock_code = row.get('股票代码', '')
-                stock_name = row.get('股票简称', '')
-                include_date_str = row.get('纳入时间', '')
-                
                 # 处理日期
+                include_date_str = row.get('纳入时间', '')
                 include_date = None
                 if include_date_str and include_date_str != '—':
                     try:
@@ -339,39 +262,70 @@ class SWThirdLevelIndustryCodesAPI(APIView):
                     except ValueError:
                         include_date = None
                 
-                # 构建参数
-                params = (
-                    stock_code,
-                    stock_name,
+                # 处理数值字段，将NaN和无效值转换为0.0，因为ClickHouse表不允许NULL值
+                def safe_float(value):
+                    if pd.isna(value) or value == '—' or value == '':
+                        return 0.0
+                    try:
+                        return float(value)
+                    except (ValueError, TypeError):
+                        return 0.0
+                
+                # 处理分类字段，将'—'转换为空字符串，因为String类型不能接受None值
+                def safe_str(value):
+                    if pd.isna(value) or value == '—' or value is None or value == '':
+                        return ''
+                    return str(value)
+                
+                # 将每一行转换为Python原生类型的元组
+                data_row = (
+                    str(row.get('股票代码', '')),
+                    str(row.get('股票简称', '')),
                     industry_code,
                     include_date,
-                    row.get('申万1级', '') if row.get('申万1级', '') != '—' else None,
-                    row.get('申万2级', '') if row.get('申万2级', '') != '—' else None,
-                    row.get('申万3级', '') if row.get('申万3级', '') != '—' else None,
-                    safe_convert(row.get('价格')),
-                    safe_convert(row.get('市盈率')),
-                    safe_convert(row.get('市盈率ttm')),
-                    safe_convert(row.get('市净率')),
-                    safe_convert(row.get('股息率')),
-                    safe_convert(row.get('市值')),
-                    safe_convert(row.get('归母净利润同比增长(09-30)')),
-                    safe_convert(row.get('归母净利润同比增长(06-30)')),
-                    safe_convert(row.get('营业收入同比增长(09-30)')),
-                    safe_convert(row.get('营业收入同比增长(06-30)')),
-                    current_timestamp
+                    safe_str(row.get('申万1级', '')),
+                    safe_str(row.get('申万2级', '')),
+                    safe_str(row.get('申万3级', '')),
+                    safe_float(row.get('价格')),
+                    safe_float(row.get('市盈率')),
+                    safe_float(row.get('市盈率ttm')),
+                    safe_float(row.get('市净率')),
+                    safe_float(row.get('股息率')),
+                    safe_float(row.get('市值')),
+                    safe_float(row.get('归母净利润同比增长(09-30)')),
+                    safe_float(row.get('归母净利润同比增长(06-30)')),
+                    safe_float(row.get('营业收入同比增长(09-30)')),
+                    safe_float(row.get('营业收入同比增长(06-30)')),
+                    current_time
                 )
-                
-                cursor.execute(insert_sql, params)
+                insert_data.append(data_row)
             
-            conn.commit()
-            logger.info(f"成功保存行业{industry_code}的成分股数据，共{len(df)}条")
+            # 使用execute方法批量插入数据
+            if insert_data:
+                # ClickHouse驱动的execute方法直接接受数据列表，不需要在SQL中写占位符
+                insert_sql = """
+                INSERT INTO sw_industry_stocks (
+                    stock_code, stock_name, industry_code, include_date, 
+                    sw_first_level, sw_second_level, sw_third_level, 
+                    price, pe, pe_ttm, pb, dividend_yield, market_cap,
+                    net_profit_growth_0930, net_profit_growth_0630,
+                    revenue_growth_0930, revenue_growth_0630,
+                    update_time
+                ) VALUES
+                """
+                
+                # 直接将数据列表传递给execute方法
+                conn.execute(insert_sql, insert_data)
+            
+            # ClickHouse自动提交，不需要显式commit
+            logger.info(f"成功保存行业{industry_code}的成分股数据，共{len(insert_data)}条")
             
         except Exception as e:
-            conn.rollback()
+            # ClickHouse不需要显式rollback
             logger.error(f"保存行业{industry_code}的成分股数据时发生错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise
-        finally:
-            cursor.close()
     
     def get(self, request):
         conn = None
@@ -382,15 +336,14 @@ class SWThirdLevelIndustryCodesAPI(APIView):
             # 如果提供了code参数，获取该行业对应的股票代码
             if code:
                 # 调用我们封装的函数获取行业成分股
-                from backend.global_config.data_fetch import get_sw_index_third_cons
+                from global_config.data_fetch import get_sw_index_third_cons
                 df = get_sw_index_third_cons(symbol=code)
                 
                 # 获取数据库连接并保存数据
                 conn = get_conn()
                 
 
-                # 确保表存在
-                self._ensure_stock_table_exists(conn)
+                # 表已经提前创建，跳过表检查
                 
                 # 保存数据到数据库
                 self._save_industry_stocks(conn, df, code)

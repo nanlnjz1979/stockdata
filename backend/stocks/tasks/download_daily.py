@@ -16,10 +16,10 @@ from .base import BaseTask
 
 
 
-def _insert_daily_thread(code, df, adj, conn=None, result_dict=None):
+def _insert_daily_thread(code, df, conn=None, result_dict=None):
     """在线程中执行数据插入操作并更新结果字典"""
     try:
-        saved_count = _insert_daily(code, df, adj, conn)
+        saved_count = _insert_daily(code, df, conn)
         if result_dict is not None:
             with result_dict.get('lock', threading.Lock()):
                 result_dict['total_saved'] += saved_count
@@ -27,20 +27,19 @@ def _insert_daily_thread(code, df, adj, conn=None, result_dict=None):
                     result_dict['success_codes'].append(code)
         return saved_count
     except Exception as e:
-        logger.exception("线程数据保存失败: code=%s, adj=%s, error=%s", code, adj, e)
+        logger.exception("线程数据保存失败: code=%s, error=%s", code, e)
         if result_dict is not None:
             with result_dict.get('lock', threading.Lock()):
                 result_dict['failed_codes'].append((code, str(e)))
         return 0
 
-def _insert_daily(code, df, adj, conn=None):
+def _insert_daily(code, df, conn=None):
     if df is None or getattr(df, 'empty', True):
         return 0
     conn_local = conn 
     if not conn_local:
         return 0
     try:
-        cur = conn_local.cursor()
         cols = {
             '日期': 'date',
             '开盘': 'open',
@@ -59,14 +58,12 @@ def _insert_daily(code, df, adj, conn=None):
             if not d:
                 continue
             try:
-                trade_date = d if isinstance(d, datetime) else datetime.strptime(str(d), '%Y-%m-%d')
+                date = d if isinstance(d, datetime) else datetime.strptime(str(d), '%Y-%m-%d')
             except Exception:
                 continue
-            adj_norm = adj if (adj and str(adj).strip()) else None
             values.append((
                 code,
-                trade_date,
-                adj_norm,
+                date,
                 _num(r.get('open')),
                 _num(r.get('close')),
                 _num(r.get('high')),
@@ -78,11 +75,12 @@ def _insert_daily(code, df, adj, conn=None):
             ))
         if values:
             try:
-                cur.executemany(
+                # 直接使用conn.execute()，ClickHouse客户端支持execute方法
+                conn_local.execute(
                     """
                     insert into stock_daily (
-                      code, trade_date, adjust_type, open, close, high, low, volume, amount, turnover, outstanding_share
-                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                      code, date, open, close, high, low, volume, amount, turnover, outstanding_share
+                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     values
                 )
@@ -90,14 +88,22 @@ def _insert_daily(code, df, adj, conn=None):
                 return 0
         if conn is None:
             try:
-                conn_local.close()
+                # ClickHouse客户端使用disconnect()方法关闭连接
+                if hasattr(conn_local, 'disconnect'):
+                    conn_local.disconnect()
+                else:
+                    conn_local.close()
             except Exception:
                 pass
         return len(values)
     except Exception:
         try:
             if conn is None:
-                conn_local.close()
+                # ClickHouse客户端使用disconnect()方法关闭连接
+                if hasattr(conn_local, 'disconnect'):
+                    conn_local.disconnect()
+                else:
+                    conn_local.close()
         except Exception:
             pass
         return 0
@@ -121,7 +127,7 @@ class DownloadDailyTask(BaseTask):
     执行逻辑：为每个股票调用 ak.stock_zh_a_hist 并写入 QuestDB。
     """
 
-    def __init__(self, orm):
+    def __init__(self, orm = None):
         # 仅要求传入 orm，其余字段在 generate() 时设置
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
@@ -148,7 +154,6 @@ class DownloadDailyTask(BaseTask):
         params = self._parse_params()
         market = (params.get('market') or '').upper()
         
-        adjust = (params.get('adjust') or '').lower()
         start_date = norm_date(params.get('start_date')) or '19900101'
         end_date = norm_date(params.get('end_date')) or datetime.now().strftime('%Y%m%d')
 
@@ -192,34 +197,16 @@ class DownloadDailyTask(BaseTask):
                 # 保存到CSV：不使用线程，直接保存
                 for code in codes:
                     try:
-                        # 获取所有需要的复权类型
-                        adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
-                        
-                        # 收集所有复权类型的数据
-                        all_data = []
-                        total_rows = 0
-                        
-                        for adj in adjust_all:
-                            df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
-                            if df is not None and not df.empty:
-                                # 复制DataFrame以避免修改原始数据
-                                temp_df = df.copy()
-                                # 添加复权类型标识
-                                temp_df['adjust_type'] = adj if (adj and str(adj).strip()) else None
-                                all_data.append(temp_df)
-                                total_rows += len(temp_df)
-                        
-                        # 合并所有复权类型的数据并一次性保存
-                        if all_data:
-                            # 合并所有DataFrame
-                            combined_df = pd.concat(all_data, ignore_index=True)
-                            # 一次性保存到CSV
-                            saved_count = save_to_csv(code, combined_df, None)  # 传入None作为adj参数，因为已经在数据中包含了adjust_type
+                        # 只获取不复权的数据
+                        df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date)
+                        if df is not None and not df.empty:
+                            
+                            saved_count = save_to_csv(code, df)
                             result_dict['total_saved'] += saved_count
                             
                             if saved_count > 0:
                                 result_dict['success_codes'].append(code)
-                                logger.info(f"成功保存股票 {code} 的所有复权类型数据，共 {total_rows} 行")
+                                logger.info(f"成功保存股票 {code} 的不复权数据，共 {len(df)} 行")
                     except Exception as e:
                         logger.exception("数据获取或保存失败: code=%s, error=%s", code, e)
                         result_dict['failed_codes'].append((code, str(e)))
@@ -227,24 +214,22 @@ class DownloadDailyTask(BaseTask):
                 # 保存到数据库：继续使用线程
                 threads = []
                 for code in codes:
-                    adjust_all = ['', 'qfq', 'hfq'] if adjust == "all" else [adjust]
-                    for adj in adjust_all:
-                        try:
-                            # 先获取数据
-                            df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date, adjust=adj)
-                            
-                            # 创建并启动线程来保存数据到数据库
-                            t = threading.Thread(
-                                target=_insert_daily_thread,
-                                args=(code, df, adj, conn_local, result_dict),
-                                name=f"save_db_{code}_{adj}"
-                            )
-                            threads.append(t)
-                            t.start()
-                        except Exception as e:
-                            logger.exception("数据获取失败: code=%s, adj=%s, error=%s", code, adj, e)
-                            with result_dict['lock']:
-                                result_dict['failed_codes'].append((code, f"获取数据失败: {str(e)}"))
+                    try:
+                        # 先获取数据
+                        df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date)
+                        
+                        # 创建并启动线程来保存数据到数据库
+                        t = threading.Thread(
+                            target=_insert_daily_thread,
+                            args=(code, df, conn_local, result_dict),
+                            name=f"save_db_{code}"
+                        )
+                        threads.append(t)
+                        t.start()
+                    except Exception as e:
+                        logger.exception("数据获取失败: code=%s, error=%s", code, e)
+                        with result_dict['lock']:
+                            result_dict['failed_codes'].append((code, f"获取数据失败: {str(e)}"))
                 
                 # 等待所有线程完成
                 for t in threads:
@@ -267,7 +252,11 @@ class DownloadDailyTask(BaseTask):
             # 只有在保存到数据库时才需要关闭连接
             if not to_csv and conn is None:
                 try:
-                    conn_local.close()
+                    # ClickHouse客户端使用disconnect()方法关闭连接
+                    if hasattr(conn_local, 'disconnect'):
+                        conn_local.disconnect()
+                    else:
+                        conn_local.close()
                 except Exception:
                     pass
 

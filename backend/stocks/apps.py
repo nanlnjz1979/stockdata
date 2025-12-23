@@ -6,37 +6,14 @@ class StocksConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'stocks'
 
-    _qdb_bootstrap_done = False
+    _bootstrap_done = False
 
     def ready(self):
         # 避免在开发模式下重复执行（Django autoreload 会多次调用 ready）
-        if StocksConfig._qdb_bootstrap_done:
+        if StocksConfig._bootstrap_done:
             return
-        StocksConfig._qdb_bootstrap_done = True
+        StocksConfig._bootstrap_done = True
 
-        # 同步执行：服务启动时直接检查并创建 QuestDB 表
-        try:
-            import sys
-            from pathlib import Path
-            from django.conf import settings
-            project_root = Path(settings.BASE_DIR).parent
-            if str(project_root) not in sys.path:
-                sys.path.append(str(project_root))
-
-            from db.db_pool import get_conn, put_conn
-            from data_pipeline.collector import qdb_ensure_tables
-            conn = get_conn()
-            if conn:
-                try:
-                    qdb_ensure_tables(conn)
-                finally:
-                    try:
-                        put_conn(conn)
-                    except Exception:
-                        pass
-        except Exception:
-            # 启动期不阻塞服务；如果失败可以在运行时兜底或手动脚本创建
-            pass
         # 同步执行：服务启动时直接加载所有计划任务配置并注册django-q定时任务
         try:
             import sys
@@ -47,15 +24,17 @@ class StocksConfig(AppConfig):
                 sys.path.append(str(project_root))
 
             from db.db_pool import get_conn, put_conn
+            from db import get_mongo_conn, put_mongo_conn
             from backend.global_config import GlobalConfig
             from stocks.tasks.scheduler import build_schedules_from_global_config
-            conn = get_conn()
-            if conn:
+            # 使用MongoDB连接初始化GlobalConfig
+            mongo_conn = get_mongo_conn()
+            if mongo_conn:
                 try:
-                    _ = GlobalConfig(conn)  # 读取并缓存 schedule_configs（同时写回默认值）
+                    _ = GlobalConfig(mongo_conn)  # 读取并缓存 schedule_configs（同时写回默认值）
                 finally:
                     try:
-                        put_conn(conn)
+                        put_mongo_conn(mongo_conn)
                     except Exception:
                         pass
                 # 构建/更新django-q计划

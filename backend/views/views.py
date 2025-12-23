@@ -37,116 +37,7 @@ class StockFinanceViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # 占位：按时间范围查询历史K线（后续接入TimescaleDB）
-class TaskListView(APIView):
-    def get(self, request):
-        import os
-        try:
-            import psycopg2
-            from psycopg2 import OperationalError
-            # 导入连接池
-            from db.db_pool import get_conn, put_conn
-        except Exception as e:
-            return Response({'error': f'缺少依赖: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        type_filter = request.query_params.get('task_type') or request.query_params.get('type')
-        status_filter = request.query_params.get('status')
-        param_contains = request.query_params.get('param_contains') or request.query_params.get('q')
-
-        # 分页参数，默认第1页、每页50条；允许使用limit作为page_size别名
-        try:
-            page = int(request.query_params.get('page') or 1)
-        except Exception:
-            page = 1
-        try:
-            page_size = int(request.query_params.get('page_size') or request.query_params.get('limit') or 50)
-        except Exception:
-            page_size = 50
-        if page < 1:
-            page = 1
-        if page_size < 1:
-            page_size = 50
-        page_size = min(page_size, 200)
-
-        # 尝试使用连接池获取连接
-        try:
-            conn = get_conn()
-        except OperationalError as e:
-            return Response({'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        except Exception as e:
-            return Response({'error': f'连接异常: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # 构造查询条件
-        where = []
-        params = []
-        if status_filter:
-            where.append("status=%s")
-            params.append(status_filter)
-        if type_filter:
-            where.append("task_type=%s")
-            params.append(type_filter)
-        if param_contains:
-            where.append("lower(task_params) LIKE %s")
-            params.append('%' + param_contains.lower() + '%')
-        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
-
-        cur = conn.cursor()
-        # 统计总数
-        total = 0
-        try:
-            cur.execute(f"SELECT count(*) FROM tasks{where_sql}", params)
-            total = int((cur.fetchone() or [0])[0] or 0)
-        except Exception:
-            total = 0
-
-        # QuestDB不支持OFFSET，这里通过拉取前 page*page_size 条再在Python层切片实现分页
-        fetch_limit = min(page * page_size, max(page_size, 1000))
-        if total > 0:
-            fetch_limit = min(fetch_limit, total)
-
-        rows = []
-        cols = ['task_id','task_type','task_desc','task_params','priority','status','created_at','started_at','ended_at']
-        try:
-            cur.execute(
-                f"SELECT task_id, task_type, task_desc, task_params, priority, status, created_at, started_at, ended_at FROM tasks{where_sql} ORDER BY priority DESC LIMIT %s",
-                params + [fetch_limit]
-            )
-            rows = cur.fetchall() or []
-            if cur.description:
-                cols = [d[0] for d in cur.description]
-        except Exception:
-            rows = []
-
-        items_all = [{cols[i]: r[i] for i in range(len(cols))} for r in rows]
-        start = (page - 1) * page_size
-        end = start + page_size
-        items = items_all[start:end]
-
-        # 选项派生
-        types = sorted(list({(it.get('task_type') or '') for it in items_all if it.get('task_type')}))
-        # 固定状态列表，确保前端始终可选
-        statuses = ['待处理','处理中','成功','失败','重试中','已取消']
-
-        try:
-            # 使用连接池归还连接
-            put_conn(conn)
-        except Exception:
-            try:
-                # 备选方案：直接关闭连接
-                conn.close()
-            except Exception:
-                pass
-
-        total_pages = (total + page_size - 1) // page_size if page_size else 1
-        return Response({
-            'items': items,
-            'total': total,
-            'page': page,
-            'page_size': page_size,
-            'total_pages': total_pages,
-            'has_prev': page > 1,
-            'has_next': page < total_pages,
-            'options': {'types': types, 'statuses': statuses}
-        })
 
 import threading
 import time
@@ -187,28 +78,24 @@ def _start_full_update_thread():
     
     def worker():
         try:
-            import sys
-            project_root = Path(settings.BASE_DIR).parent
-            if str(project_root) not in sys.path:
-                sys.path.append(str(project_root))
-            from db.db_pool import get_conn, put_conn
-            
-            conn = get_conn()
-            
-            if not conn:
-                _update_ctrl['state']['error'] = 'QuestDB连接失败'
-                raise RuntimeError('QuestDB连接失败')
-         
-            
-            from backend.global_config.stock_info import StockInfo
+           
+            from global_config.stock_info import StockInfo
 
             basics = StockInfo.get_all_stocks()    #基础股票代码库
             _update_ctrl['state']['total_codes'] = len(basics)
             
-            orm = QtasksOrm(conn)
+            orm = QtasksOrm()
             task = DownloadDailyTask(orm)
             for item in basics:     #基础库中的一条记录
                 # 检查是否需要停止
+                if _update_ctrl['stop_event'].is_set():
+                    break
+                
+                # 检查是否暂停
+                while _update_ctrl['state']['paused']:
+                    if _update_ctrl['stop_event'].is_set():
+                        break
+                    time.sleep(0.2)
                 if _update_ctrl['stop_event'].is_set():
                     break
                 
@@ -230,17 +117,15 @@ def _start_full_update_thread():
                     except Exception:
                         start_date = '19841118'
                 
+                # 更新当前处理的股票代码
+                _update_ctrl['state']['current_code'] = code
+                
                 # 只生成任务，不执行具体下载和更新
                 task.generate("Download_Full_Daily", f"Download daily data for {code}", {"code": code, "start_date": start_date, "end_date": timezone.now().strftime("%Y%m%d"), "market": market ,"adjust": "all"}, priority=0)
                 
                 # 更新状态计数
                 _update_ctrl['state']['updated_count'] += 1
                 time.sleep(0.01)  # 避免过快生成任务
-            try:
-                if conn:
-                    put_conn(conn)
-            except Exception:
-                pass
         finally:
             _update_ctrl['state']['running'] = False
             _update_ctrl['state']['stopped'] = _update_ctrl['stop_event'].is_set()
@@ -258,32 +143,28 @@ from stocks.tasks.QueueUpdateTask import QueueUpdateStartView
 class UpdateStatusView(APIView):
     
     def get(self, request):
-        """返回数据更新相关状态（QuestDB）和连接池状态，不依赖SQLite。"""
+        
         from backend.db.db_pool import get_conn, put_conn, get_pool_stats
-        from backend.global_config.stock_info import StockInfo
+        from global_config.stock_info import StockInfo
 
         qdb_ok = False
         qdb_error = None
         stock_basic_count = 0
         conn = None
-        cur = None
 
         try:
             # 使用默认连接池获取连接
             conn = get_conn()
-            cur = conn.cursor()
+            # ClickHouse客户端直接支持execute方法，不需要cursor
+            # 执行简单查询验证连接
+            conn.execute("SELECT 1")
             qdb_ok = True
             # 使用StockInfo获取股票数量
             stock_basic_count = StockInfo.get_stock_count()
         except Exception as e:
             qdb_error = str(e)
         finally:
-            # 确保游标和连接被正确关闭或归还
-            if cur:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
+            # 确保连接被正确归还
             if conn:
                 put_conn(conn)
 

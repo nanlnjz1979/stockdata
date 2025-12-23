@@ -5,31 +5,44 @@ from pathlib import Path
 from django.conf import settings
 
 class ScheduleConfigView(APIView):
-    """参数配置：读取与保存 QuestDB 中的 schedule_configs。"""
+    """参数配置：读取与保存 MongoDB 中的 schedule_configs。"""
     def get(self, request):
         try:
             import sys
             project_root = Path(settings.BASE_DIR).parent
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
-            # 导入连接池函数
-            from db.db_pool import get_conn, put_conn
+            # 导入MongoDB连接函数
+            from db import get_mongo_conn, put_mongo_conn
         except Exception as e:
             return Response({'error': f'导入连接模块失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         try:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("SELECT id, name, task_desc, params, schedule_time, enabled FROM schedule_configs ORDER BY id")
-            rows = cur.fetchall() or []
-            cols = [d[0] for d in cur.description] if cur.description else ['id','name','task_desc','params','schedule_time','enabled']
-            items = [{cols[i]: r[i] for i in range(len(cols))} for r in rows]
+            # 获取MongoDB连接
+            conn = get_mongo_conn()
+            # 获取数据库和集合
+            db = conn['stockdata']
+            schedule_configs_col = db['schedule_configs']
+            # 从MongoDB读取所有配置
+            rows = list(schedule_configs_col.find({}, {'_id': 1, 'name': 1, 'task_desc': 1, 'params': 1, 'schedule_time': 1, 'enabled': 1}))
+            # 转换为前端需要的格式
+            items = []
+            for row in rows:
+                item = {
+                    'id': row.get('_id'),
+                    'name': row.get('name'),
+                    'task_desc': row.get('task_desc'),
+                    'params': row.get('params'),
+                    'schedule_time': row.get('schedule_time'),
+                    'enabled': row.get('enabled')
+                }
+                items.append(item)
             return Response({'items': items})
         except Exception as e:
             return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             if 'conn' in locals():
                 try:
-                    put_conn(conn)
+                    put_mongo_conn(conn)
                 except Exception:
                     try:
                         conn.close()
@@ -46,8 +59,9 @@ class ScheduleConfigView(APIView):
             project_root = Path(settings.BASE_DIR).parent
             if str(project_root) not in sys.path:
                 sys.path.append(str(project_root))
-            from db.db_pool import get_conn, put_conn
-            from backend.global_config import GlobalConfig
+            # 导入MongoDB连接函数
+            from db import get_mongo_conn, put_mongo_conn
+            from global_config.config import GlobalConfig
         except Exception as e:
             return Response({'error': f'导入模块失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -61,12 +75,18 @@ class ScheduleConfigView(APIView):
         if not isinstance(items, list):
             return Response({'error': '请求体需包含 items 列表或 configs 字典'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 归一化并保存
+        # 归一化并保存到MongoDB
         conn = None
         try:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("TRUNCATE TABLE schedule_configs")
+            # 获取MongoDB连接
+            conn = get_mongo_conn()
+            # 获取数据库和集合
+            db = conn['stockdata']
+            schedule_configs_col = db['schedule_configs']
+            # 先清空原集合
+            schedule_configs_col.delete_many({})
+            # 准备插入的数据
+            insert_data = []
             for it in items:
                 _id = str(it.get('id') or '').strip()
                 if not _id:
@@ -74,29 +94,32 @@ class ScheduleConfigView(APIView):
                 name = it.get('name') or ''
                 task_desc = it.get('task_desc') or ''
                 params = it.get('params') or ''
-                schedule_time = GlobalConfig._normalize_schedule_time_for_db(it.get('schedule_time'))
-                enabled = GlobalConfig._normalize_enabled_for_db(it.get('enabled'))
-                sql = (
-                    """
-                    INSERT INTO schedule_configs
-                        (id, name, task_desc, params, schedule_time, enabled)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """
-                )
-                cur.execute(sql, (_id, name, task_desc, params, schedule_time, enabled))
-            conn.commit()
+                # 使用GlobalConfig的归一化方法处理时间和启用状态
+                schedule_time = it.get('schedule_time')
+                enabled = it.get('enabled')
+                
+                # 构建插入文档
+                doc = {
+                    '_id': _id,
+                    'name': name,
+                    'task_desc': task_desc,
+                    'params': params,
+                    'schedule_time': schedule_time,
+                    'enabled': enabled
+                }
+                insert_data.append(doc)
+            
+            # 批量插入到MongoDB
+            if insert_data:
+                schedule_configs_col.insert_many(insert_data)
+            
             return Response({'saved': True, 'count': len(items)})
         except Exception as e:
-            if conn:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
             return Response({'error': f'保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             if conn:
                 try:
-                    put_conn(conn)
+                    put_mongo_conn(conn)
                 except Exception:
                     try:
                         conn.close()

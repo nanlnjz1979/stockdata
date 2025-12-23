@@ -1,0 +1,69 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Django: Run",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/backend/manage.py",
+            "args": [
+                "runserver",
+                "0.0.0.0:8000",
+                "--noreload"
+            ],
+            "django": true,
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/backend",
+            "env": {
+                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
+            }
+        },
+        {
+            "name": "Django: Run with Reload",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/backend/manage.py",
+            "args": [
+                "runserver",
+                "0.0.0.0:8000"
+            ],
+            "django": true,
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/backend",
+            "env": {
+                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
+            }
+        },
+        {
+            "name": "Django: Shell",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/backend/manage.py",
+            "args": [
+                "shell"
+            ],
+            "django": true,
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/backend",
+            "env": {
+                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
+            }
+        },
+        {
+            "name": "Python: Django Debug Single File",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/backend/manage.py",
+            "args": [
+                "runserver",
+                "0.0.0.0:8000",
+                "--noreload"
+            ],
+            "cwd": "${workspaceFolder}/backend",
+            "env": {
+                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
+            },
+            "justMyCode": true
+        }
+    ]
+}

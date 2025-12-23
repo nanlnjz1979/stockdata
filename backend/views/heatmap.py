@@ -42,7 +42,7 @@ class HeatmapDataView(APIView):
     def _get_data_from_database(self, period, data_type, limit):
         """
         从数据库获取热力图数据
-        使用用户提供的SQL查询：SELECT code, trade_date FROM stock_daily LATEST BY code
+        使用用户提供的SQL查询：SELECT code, date FROM stock_daily LATEST BY code
         """
         logger = logging.getLogger(__name__)
         conn = None
@@ -53,46 +53,49 @@ class HeatmapDataView(APIView):
             conn = get_conn()
             
             # 使用用户提供的SQL查询获取每个股票的最后更新时间
-            sql = "SELECT code, trade_date FROM stock_daily LATEST BY code LIMIT %s"
+            # 修改为使用date列，并适配ClickHouse语法
+            # ClickHouse不支持LATEST BY，使用子查询和order by limit来实现
+            # 先获取每个股票的最新记录，然后再限制总数量
+            # 直接将limit值插入到SQL字符串中，因为ClickHouse驱动可能不支持位置参数
+            sql = f"""
+            SELECT code, date FROM (
+                SELECT code, date 
+                FROM stock_daily_v 
+                ORDER BY code, date DESC 
+                LIMIT 1 BY code
+            ) ORDER BY code
+            LIMIT {limit}
+            """
             
-            # 执行查询
-            with conn.cursor() as cursor:
-                cursor.execute(sql, (limit,))
-                rows = cursor.fetchall()
+            # 执行查询 - ClickHouse客户端直接支持execute方法，不需要cursor
+            rows = conn.execute(sql)
+            
+            # 处理查询结果
+            for row in rows:
+                code, last_update_date = row
                 
-                # 处理查询结果
-                for row in rows:
-                    code, trade_date = row
-                    
-                    # 计算更新状态和天数差
-                    if isinstance(trade_date, str):
-                        last_update_date = datetime.strptime(trade_date, '%Y-%m-%d')
-                    else:
-                        last_update_date = trade_date
-                    
-                    today = datetime.now().date()
-                    days_diff = (today - last_update_date.date()).days
-                    update_status = 1 - (days_diff / period) if days_diff <= period else 0
-                    
-                    # 根据复权类型设置类型名称
-                    if data_type == 'before':
-                        type_name = '前复权'
-                    elif data_type == 'after':
-                        type_name = '后复权'
-                    else:
-                        type_name = '不复权'
-                    
-                    # 判断市场类型
-                    market = '上海' if code.startswith('6') else '深圳'
-                    
-                    result.append({
-                        'code': code,
-                        'name': f"{market}股票{code[-4:]}",  # 简单生成股票名称
-                        'last_update': last_update_date.strftime('%Y-%m-%d'),
-                        'update_status': round(update_status, 2),
-                        'type': type_name,
-                        'days_since_update': days_diff
-                    })
+                # 计算更新状态和天数差
+                if isinstance(last_update_date, str):
+                    last_update_date = datetime.strptime(last_update_date, '%Y-%m-%d')
+                
+                today = datetime.now().date()
+                days_diff = (today - last_update_date.date()).days
+                update_status = 1 - (days_diff / period) if days_diff <= period else 0
+                
+                # 不复权，因为我们已经移除了adjust_type列
+                type_name = '不复权'
+                
+                # 判断市场类型
+                market = '上海' if code.startswith('6') else '深圳'
+                
+                result.append({
+                    'code': code,
+                    'name': f"{market}股票{code[-4:]}",  # 简单生成股票名称
+                    'last_update': last_update_date.strftime('%Y-%m-%d'),
+                    'update_status': round(update_status, 2),
+                    'type': type_name,
+                    'days_since_update': days_diff
+                })
             
             # 按更新状态排序
             result.sort(key=lambda x: x['update_status'], reverse=True)

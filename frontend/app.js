@@ -3453,11 +3453,112 @@ const API_BASE = 'http://127.0.0.1:8000';
       const url = queuePaused ? `${API_BASE}/api/stocks/update/queue/resume` : `${API_BASE}/api/stocks/update/queue/pause`;
       const r = await fetch(url, { method: 'POST' });
       let d = {};
-      try { d = await r.json(); } catch {}
-      queuePaused = !!d.paused;
+      try { d = await r.json(); } catch {}      queuePaused = !!d.paused;
       if (queueToggleBtn) queueToggleBtn.textContent = queuePaused ? '继续' : '暂停';
       queueStatusEl.textContent = queuePaused ? '已暂停队列' : '已继续队列';
       toast(queuePaused ? '已暂停任务队列' : '已继续任务队列');
+    } catch(e) {
+      toast('操作失败');
+    }
+  });
+
+  // 复权因子更新功能
+  const adjustFactorBtn = document.getElementById('updateAdjustFactor');
+  const adjustFactorToggleBtn = document.getElementById('updateAdjustFactorToggle');
+  const adjustFactorStatusEl = document.getElementById('updateAdjustFactorStatus');
+  let adjustFactorPaused = false;
+
+  // 更新复权因子按钮事件
+  adjustFactorBtn?.addEventListener('click', async () => {
+    try {
+      adjustFactorStatusEl.textContent = '更新中...';
+      const r = await fetch(`${API_BASE}/api/stocks/update/adjust_factor/start`, { method: 'POST' });
+      let d = {};
+      try { d = await r.json(); } catch {}
+      
+      if (!r.ok) {
+        const msg = d.error || d.detail || `HTTP ${r.status}`;
+        throw new Error(msg);
+      }
+      
+      adjustFactorStatusEl.textContent = `已启动，${d.message || '开始更新复权因子'}`;
+      if (adjustFactorToggleBtn) {
+        adjustFactorToggleBtn.disabled = false;
+        adjustFactorToggleBtn.textContent = '暂停';
+      }
+      adjustFactorPaused = false;
+      toast('复权因子更新已启动');
+    } catch(e) {
+      adjustFactorStatusEl.textContent = `失败：${e.message}`;
+      toast(`复权因子更新失败：${e.message}`);
+    }
+  });
+
+  // 复权因子暂停/继续按钮事件
+  adjustFactorToggleBtn?.addEventListener('click', async () => {
+    try {
+      const url = adjustFactorPaused ? `${API_BASE}/api/stocks/update/adjust_factor/resume` : `${API_BASE}/api/stocks/update/adjust_factor/pause`;
+      const r = await fetch(url, { method: 'POST' });
+      let d = {};
+      try { d = await r.json(); } catch {}
+      
+      adjustFactorPaused = !!d.paused;
+      if (adjustFactorToggleBtn) {
+        adjustFactorToggleBtn.textContent = adjustFactorPaused ? '继续' : '暂停';
+      }
+      adjustFactorStatusEl.textContent = adjustFactorPaused ? '已暂停' : '已继续';
+      toast(adjustFactorPaused ? '已暂停复权因子更新' : '已继续复权因子更新');
+    } catch(e) {
+      toast('操作失败');
+    }
+  });
+
+  // 金融数据更新功能
+  const financialDataBtn = document.getElementById('updateFinancialData');
+  const financialDataToggleBtn = document.getElementById('updateFinancialDataToggle');
+  const financialDataStatusEl = document.getElementById('updateFinancialDataStatus');
+  let financialDataPaused = false;
+
+  // 更新金融数据按钮事件
+  financialDataBtn?.addEventListener('click', async () => {
+    try {
+      financialDataStatusEl.textContent = '更新中...';
+      const r = await fetch(`${API_BASE}/api/stocks/update/financial_data/start`, { method: 'POST' });
+      let d = {};
+      try { d = await r.json(); } catch {}
+      
+      if (!r.ok) {
+        const msg = d.error || d.detail || `HTTP ${r.status}`;
+        throw new Error(msg);
+      }
+      
+      financialDataStatusEl.textContent = `已启动，${d.message || '开始更新金融数据'}`;
+      if (financialDataToggleBtn) {
+        financialDataToggleBtn.disabled = false;
+        financialDataToggleBtn.textContent = '暂停';
+      }
+      financialDataPaused = false;
+      toast('金融数据更新已启动');
+    } catch(e) {
+      financialDataStatusEl.textContent = `失败：${e.message}`;
+      toast(`金融数据更新失败：${e.message}`);
+    }
+  });
+
+  // 金融数据暂停/继续按钮事件
+  financialDataToggleBtn?.addEventListener('click', async () => {
+    try {
+      const url = financialDataPaused ? `${API_BASE}/api/stocks/update/financial_data/resume` : `${API_BASE}/api/stocks/update/financial_data/pause`;
+      const r = await fetch(url, { method: 'POST' });
+      let d = {};
+      try { d = await r.json(); } catch {}
+      
+      financialDataPaused = !!d.paused;
+      if (financialDataToggleBtn) {
+        financialDataToggleBtn.textContent = financialDataPaused ? '继续' : '暂停';
+      }
+      financialDataStatusEl.textContent = financialDataPaused ? '已暂停' : '已继续';
+      toast(financialDataPaused ? '已暂停金融数据更新' : '已继续金融数据更新');
     } catch(e) {
       toast('操作失败');
     }
@@ -3508,9 +3609,13 @@ const API_BASE = 'http://127.0.0.1:8000';
       fullStatusEl.textContent = `状态：${runFlag} | 当前：${cur}`;
       // 新增任务队列状态（从 queue_controller 取状态）
       if (queueStatusEl) {
-        const qcur = data.queue_controller?.current_code || '-';
+        const qcodes = data.queue_controller?.current_codes || [];
+        const qcur = qcodes.length > 0 ? qcodes.join(', ') : '-';
         const qrunFlag = data.queue_controller?.running ? '运行中' : (data.queue_controller?.stopped ? '已停止' : '空闲');
-        queueStatusEl.textContent = `状态：${qrunFlag} | 当前：${qcur}`;
+        const updatedCount = data.queue_controller?.updated_count || 0;
+        const totalCodes = data.queue_controller?.total_codes || 0;
+        const progress = totalCodes > 0 ? `${updatedCount}/${totalCodes} (${Math.round((updatedCount/totalCodes)*100)}%)` : '0/0 (0%)';
+        queueStatusEl.textContent = `状态：${qrunFlag} | 当前：${qcur} | 进度：${progress}`;
       }
       // 切换按钮可用性与文案
       const running = !!(data.queue_controller?.running);
@@ -3525,12 +3630,31 @@ const API_BASE = 'http://127.0.0.1:8000';
     } catch(e) {}
   }
 
+  // 轮询金融数据更新状态
+  async function pollFinancialDataProgress() {
+    try {
+      const res = await fetch(`${API_BASE}/api/stocks/update/financial_data/status`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.data) {
+          const statusData = data.data;
+          // 更新金融数据状态显示
+          if (financialDataStatusEl) {
+            financialDataStatusEl.textContent = `状态：${statusData.status} | 已更新：${statusData.updated_count}/${statusData.total_count}`;
+          }
+        }
+      }
+    } catch(e) {
+      console.error('轮询金融数据状态失败:', e);
+    }
+  }
+
   // 已删除增量更新按钮
   if (updateTab) updateTab.addEventListener('click', loadStatus);
   loadStatus();
   // 刷新模式相关变量
   let refreshIntervalId = null;
-  let currentRefreshMode = 'manual';
+  let currentRefreshMode = 'auto';
   let currentInterval = 3000; // 默认3秒
   
   // 获取UI元素
@@ -3554,8 +3678,11 @@ const API_BASE = 'http://127.0.0.1:8000';
       // 显示自动刷新设置，隐藏手动刷新按钮
       autoRefreshSettings.style.display = 'flex';
       manualRefreshSettings.style.display = 'none';
-      // 启动定时器
-      refreshIntervalId = setInterval(pollProgress, currentInterval);
+      // 启动定时器，同时轮询所有状态
+      refreshIntervalId = setInterval(() => {
+        pollProgress();
+        pollFinancialDataProgress();
+      }, currentInterval);
     } else {
       // 隐藏自动刷新设置，显示手动刷新按钮
       autoRefreshSettings.style.display = 'none';
@@ -3594,6 +3721,7 @@ const API_BASE = 'http://127.0.0.1:8000';
   });
   
   // 初始化设置
+  if (autoRefreshRadio) autoRefreshRadio.checked = true;
   setupRefreshMode();
 })();
 
@@ -3717,6 +3845,49 @@ const API_BASE = 'http://127.0.0.1:8000';
       // 恢复按钮状态
       retryBtn.disabled = false;
       retryBtn.textContent = '失败重试';
+    }
+  });
+  
+  // 删除所有任务按钮事件
+  const deleteAllBtn = qs('#taskDeleteAll');
+  deleteAllBtn?.addEventListener('click', async () => {
+    try {
+      // 显示确认对话框，防止误操作
+      if (!confirm('确定要删除所有任务吗？此操作不可恢复！')) {
+        return;
+      }
+      
+      // 禁用按钮并显示处理中状态
+      deleteAllBtn.disabled = true;
+      deleteAllBtn.textContent = '处理中...';
+      
+      // 调用API删除所有任务
+      const response = await fetch(`${API_BASE}/api/stocks/tasks/retry`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'delete_all'
+        })
+      });
+      
+      const data = await response.json();
+      
+      // 显示处理结果提示
+      if (data.success) {
+        toast(`成功删除 ${data.count || 0} 个任务`);
+        // 重新加载任务列表
+        reload();
+      } else {
+        toast(`删除失败: ${data.error || '未知错误'}`, 'error');
+      }
+    } catch (error) {
+      toast(`网络错误: ${error.message}`, 'error');
+    } finally {
+      // 恢复按钮状态
+      deleteAllBtn.disabled = false;
+      deleteAllBtn.textContent = '删除所有任务';
     }
   });
   paramSearch?.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { page = 1; reload(); } });
@@ -4305,6 +4476,11 @@ const API_BASE = 'http://127.0.0.1:8000';
           // 显示进度条
           restoreProgressContainer.style.display = 'block';
           
+          // 获取复选框状态，决定是否使用集群表
+          const useClusterCheckbox = document.getElementById('useCluster');
+          const useCluster = useClusterCheckbox ? useClusterCheckbox.checked : false;
+          const tableName = useCluster ? 'stock_daily_all' : 'stock_daily';
+          
           // 对每个股票代码调用API进行恢复
           const totalStocks = data.stock_codes.length;
           let successCount = 0;
@@ -4321,7 +4497,7 @@ const API_BASE = 'http://127.0.0.1:8000';
               const stockResponse = await fetch(`${API_BASE}/api/restore/process`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: code, path: path, table_name: 'stock_daily' })
+                body: JSON.stringify({ code: code, path: path, table_name: tableName })
               });
               
               if (stockResponse.ok) {
@@ -4478,6 +4654,234 @@ const API_BASE = 'http://127.0.0.1:8000';
         setTimeout(() => {
           swRestoreBtn.disabled = false;
           swRestoreStatus.textContent = '就绪';
+        }, 3000);
+      }
+    });
+  }
+  
+  // 复权因子数据恢复功能
+  const adjustFactorRestoreBtn = qs('#adjustFactorRestoreBtn');
+  const adjustFactorBackupFileName = qs('#adjustFactorBackupFileName');
+  const adjustFactorRestoreStatus = qs('#adjustFactorRestoreStatus');
+  const adjustFactorRestoreProgressContainer = qs('#adjustFactorRestoreProgressContainer');
+  const adjustFactorRestoreProgressBar = qs('#adjustFactorRestoreProgressBar');
+  const adjustFactorRestoreProgressText = qs('#adjustFactorRestoreProgressText');
+  
+  if (adjustFactorRestoreBtn && adjustFactorBackupFileName) {
+    adjustFactorRestoreBtn.addEventListener('click', async () => {
+      try {
+        const path = adjustFactorBackupFileName.value.trim();
+        if (!path) {
+          toast('请输入复权因子数据备份路径');
+          return;
+        }
+        
+        adjustFactorRestoreBtn.disabled = true;
+        adjustFactorRestoreStatus.textContent = '正在执行恢复...';
+        
+        // 添加开始日志
+        addLogEntry('', `开始恢复复权因子数据，路径: ${path}`, 'info', null, null, '复权因子');
+        addLogEntry('', '正在查询路径下的复权因子文件...', 'info', null, null, '复权因子');
+        
+        // 调用后端API，传递路径并获取复权因子代码列表
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API请求失败: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.stock_codes && data.stock_codes.length > 0) {
+          addLogEntry('', `成功获取 ${data.stock_codes.length} 个复权因子代码`, 'info', null, null, '复权因子');
+          
+          // 显示进度条
+          adjustFactorRestoreProgressContainer.style.display = 'block';
+          
+          // 对每个复权因子代码调用API进行恢复
+          const totalCodes = data.stock_codes.length;
+          let successCount = 0;
+          let failCount = 0;
+          
+          for (let i = 0; i < totalCodes; i++) {
+            const code = data.stock_codes[i];
+            
+            // 添加开始处理日志，保存返回的日志条目引用
+            const logEntry = addLogEntry(code, '开始恢复复权因子数据...', 'info', null, null, '复权因子');
+            
+            try {
+              // 调用恢复API
+              const adjustResponse = await fetch(`${API_BASE}/api/restore/process`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code, path: path, table_name: 'fq_factor' })
+              });
+              
+              if (adjustResponse.ok) {
+                const result = await adjustResponse.json();
+                // 更新同一个日志条目，添加结果信息
+                updateLogEntry(logEntry, result.message || '恢复成功', 'success');
+                successCount++;
+              } else {
+                // 更新同一个日志条目，添加警告信息
+                updateLogEntry(logEntry, `恢复可能有问题，状态码: ${adjustResponse.status}`, 'warning');
+                failCount++;
+              }
+            } catch (adjustError) {
+              // 更新同一个日志条目，添加错误信息
+              updateLogEntry(logEntry, `恢复失败: ${adjustError.message}`, 'error');
+              failCount++;
+            }
+            
+            // 更新进度条
+            const progress = Math.round(((i + 1) / totalCodes) * 100);
+            adjustFactorRestoreProgressBar.style.width = `${progress}%`;
+            adjustFactorRestoreProgressText.textContent = `${progress}% (${i + 1}/${totalCodes})`;
+          }
+          
+          // 添加总结日志
+          adjustFactorRestoreStatus.textContent = '恢复完成！';
+          const summaryMessage = `所有复权因子数据处理完成。成功: ${successCount}, 失败: ${failCount}, 总数: ${totalCodes}`;
+          addLogEntry('', summaryMessage, failCount > 0 ? 'warning' : 'success', null, null, '复权因子');
+          
+          // 隐藏进度条
+          setTimeout(() => {
+            adjustFactorRestoreProgressContainer.style.display = 'none';
+          }, 1000);
+          
+          toast(summaryMessage);
+        } else {
+          addLogEntry('', '未找到复权因子文件或路径不存在', 'warning', null, null, '复权因子');
+          adjustFactorRestoreStatus.textContent = '恢复完成';
+        }
+        
+      } catch (error) {
+        console.error('复权因子数据恢复失败:', error);
+        adjustFactorRestoreStatus.textContent = '恢复失败！';
+        addLogEntry('', `恢复过程中发生错误: ${error.message}`, 'error', null, null, '复权因子');
+        toast(`复权因子数据恢复失败: ${error.message}`);
+      } finally {
+        setTimeout(() => {
+          adjustFactorRestoreBtn.disabled = false;
+          adjustFactorRestoreStatus.textContent = '就绪';
+        }, 3000);
+      }
+    });
+  }
+
+  // 财务数据恢复功能
+  const financialRestoreBtn = qs('#financialRestoreBtn');
+  const financialBackupFileName = qs('#financialBackupFileName');
+  const financialRestoreStatus = qs('#financialRestoreStatus');
+  const financialRestoreProgressContainer = qs('#financialRestoreProgressContainer');
+  const financialRestoreProgressBar = qs('#financialRestoreProgressBar');
+  const financialRestoreProgressText = qs('#financialRestoreProgressText');
+  
+  if (financialRestoreBtn && financialBackupFileName) {
+    financialRestoreBtn.addEventListener('click', async () => {
+      try {
+        const path = financialBackupFileName.value.trim();
+        if (!path) {
+          toast('请输入财务数据备份路径');
+          return;
+        }
+        
+        financialRestoreBtn.disabled = true;
+        financialRestoreStatus.textContent = '正在执行恢复...';
+        
+        // 添加开始日志
+        addLogEntry('', `开始恢复财务数据，路径: ${path}`, 'info', null, null, '财务');
+        addLogEntry('', '正在查询路径下的财务文件...', 'info', null, null, '财务');
+        
+        // 调用后端API，传递路径并获取财务代码列表
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API请求失败: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.stock_codes && data.stock_codes.length > 0) {
+          addLogEntry('', `成功获取 ${data.stock_codes.length} 个财务代码`, 'info', null, null, '财务');
+          
+          // 显示进度条
+          financialRestoreProgressContainer.style.display = 'block';
+          
+          // 对每个财务代码调用API进行恢复
+          const totalCodes = data.stock_codes.length;
+          let successCount = 0;
+          let failCount = 0;
+          
+          for (let i = 0; i < totalCodes; i++) {
+            const code = data.stock_codes[i];
+            
+            // 添加开始处理日志，保存返回的日志条目引用
+            const logEntry = addLogEntry(code, '开始恢复财务数据...', 'info', null, null, '财务');
+            
+            try {
+              // 调用恢复API
+              const financialResponse = await fetch(`${API_BASE}/api/restore/process`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code, path: path, table_name: 'stock_fin' })
+              });
+              
+              if (financialResponse.ok) {
+                const result = await financialResponse.json();
+                // 更新同一个日志条目，添加结果信息
+                updateLogEntry(logEntry, result.message || '恢复成功', 'success');
+                successCount++;
+              } else {
+                // 更新同一个日志条目，添加警告信息
+                updateLogEntry(logEntry, `恢复可能有问题，状态码: ${financialResponse.status}`, 'warning');
+                failCount++;
+              }
+            } catch (financialError) {
+              // 更新同一个日志条目，添加错误信息
+              updateLogEntry(logEntry, `恢复失败: ${financialError.message}`, 'error');
+              failCount++;
+            }
+            
+            // 更新进度条
+            const progress = Math.round(((i + 1) / totalCodes) * 100);
+            financialRestoreProgressBar.style.width = `${progress}%`;
+            financialRestoreProgressText.textContent = `${progress}% (${i + 1}/${totalCodes})`;
+          }
+          
+          // 添加总结日志
+          financialRestoreStatus.textContent = '恢复完成！';
+          const summaryMessage = `所有财务数据处理完成。成功: ${successCount}, 失败: ${failCount}, 总数: ${totalCodes}`;
+          addLogEntry('', summaryMessage, failCount > 0 ? 'warning' : 'success', null, null, '财务');
+          
+          // 隐藏进度条
+          setTimeout(() => {
+            financialRestoreProgressContainer.style.display = 'none';
+          }, 1000);
+          
+          toast(summaryMessage);
+        } else {
+          addLogEntry('', '未找到财务文件或路径不存在', 'warning', null, null, '财务');
+          financialRestoreStatus.textContent = '恢复完成';
+        }
+        
+      } catch (error) {
+        console.error('财务数据恢复失败:', error);
+        financialRestoreStatus.textContent = '恢复失败！';
+        addLogEntry('', `恢复过程中发生错误: ${error.message}`, 'error', null, null, '财务');
+        toast(`财务数据恢复失败: ${error.message}`);
+      } finally {
+        setTimeout(() => {
+          financialRestoreBtn.disabled = false;
+          financialRestoreStatus.textContent = '就绪';
         }, 3000);
       }
     });

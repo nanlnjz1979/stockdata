@@ -43,21 +43,29 @@ def test_connection_operations():
         
         # 获取连接
         conn = get_conn(
-            host=os.getenv('QDB_HOST', 'localhost'),
-            port=int(os.getenv('QDB_PORT', '8812')),
-            user=os.getenv('QDB_USER', 'admin'),
-            password=os.getenv('QDB_PASS', 'quest'),
-            dbname=os.getenv('QDB_DB', 'qdb')
+            host=os.getenv('CLICKHOUSE_HOST', '192.168.1.16'),
+            port=int(os.getenv('CLICKHOUSE_PORT', '9000')),
+            user=os.getenv('CLICKHOUSE_USER', 'default'),
+            password=os.getenv('CLICKHOUSE_PASSWORD', ''),
+            database=os.getenv('CLICKHOUSE_DATABASE', 'default')
         )
         logger.info("✓ 成功从连接池获取连接")
         
-        # 执行简单查询
+        # 执行简单查询，适配不同数据库连接
         try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            result = cursor.fetchone()
-            cursor.close()
-            logger.info(f"✓ 连接有效，查询结果: {result}")
+            result = None
+            if hasattr(conn, '_client'):  # ClickHouse连接对象
+                result = conn._client.execute("SELECT 1")
+                logger.info(f"✓ 连接有效，查询结果: {result}")
+            elif hasattr(conn, 'execute'):  # 直接支持execute的连接对象
+                result = conn.execute("SELECT 1")
+                logger.info(f"✓ 连接有效，查询结果: {result}")
+            else:  # 传统数据库连接
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1")
+                result = cursor.fetchone()
+                cursor.close()
+                logger.info(f"✓ 连接有效，查询结果: {result}")
         except Exception as e:
             logger.error(f"✗ 连接有效性测试失败: {e}")
         
@@ -84,11 +92,11 @@ def test_multiple_connections():
         connections = []
         for i in range(3):
             conn = get_conn(
-                host=os.getenv('QDB_HOST', 'localhost'),
-                port=int(os.getenv('QDB_PORT', '8812')),
-                user=os.getenv('QDB_USER', 'admin'),
-                password=os.getenv('QDB_PASS', 'quest'),
-                dbname=os.getenv('QDB_DB', 'qdb')
+                host=os.getenv('CLICKHOUSE_HOST', '192.168.1.16'),
+                port=int(os.getenv('CLICKHOUSE_PORT', '9000')),
+                user=os.getenv('CLICKHOUSE_USER', 'default'),
+                password=os.getenv('CLICKHOUSE_PASSWORD', ''),
+                database=os.getenv('CLICKHOUSE_DATABASE', 'default')
             )
             connections.append(conn)
             logger.info(f"✓ 获取连接 {i+1}")

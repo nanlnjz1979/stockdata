@@ -25,12 +25,7 @@ class StockFinance(models.Model):
 # UserFollow模型已移除
 class StockDaily(models.Model):
     stock = models.ForeignKey(StockBasic, on_delete=models.CASCADE)
-    trade_date = models.DateField()
-    adjust_type = models.CharField(max_length=10, choices=(
-        ('', '不复权'),
-        ('qfq', '前复权'),
-        ('hfq', '后复权'),
-    ))
+    date = models.DateField()
     open = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     close = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     high = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
@@ -43,10 +38,9 @@ class StockDaily(models.Model):
     amplitude = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
 
     class Meta:
-        unique_together = ('stock', 'trade_date', 'adjust_type')
+        unique_together = ('stock', 'date')
         indexes = [
-            models.Index(fields=['stock', 'trade_date']),
-            models.Index(fields=['adjust_type']),
+            models.Index(fields=['stock', 'date']),
         ]
 
 

@@ -11,6 +11,8 @@ from .data.dragon_tiger import DragonTigerView
 from views.heatmap import HeatmapDataView
 from views.config_views import ScheduleConfigView, ScheduleApplyView
 from views.restore_backup import GetRestoreStockFiles, RestoreStockData, MergeStockData, MergeStockItem, SwMergeData, MergeSWIndexData
+from views.adjust_factor_views import AdjustFactorUpdateView, AdjustFactorStatusView
+from views.financial_data_views import FinancialDataUpdateView, FinancialDataStatusView, FinancialDataPauseView, FinancialDataResumeView
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
 router.register(r'stocks/finance', StockFinanceViewSet, basename='stocks-finance')
@@ -57,7 +59,7 @@ urlpatterns = [
     # 申万行业数据API
     path('stocks/sw/generate', SWIndustryDataAPI.as_view()),# 生成申万行业分类数据
     path('stocks/sw/classification', SWIndustryClassificationAPI.as_view()),# 查询申万行业分类数据
-    path('stocks/sw/third_level_industry_codes', SWThirdLevelIndustryCodesAPI.as_view()),# 获取三级行业代码
+    path('stocks/sw/third_level_industry_codes', SWThirdLevelIndustryCodesAPI.as_view()),# 获取三级行业成分股
     
       # 股票文件处理相关API
 
@@ -70,4 +72,16 @@ urlpatterns = [
 
     path('restore/sw_merge', SwMergeData.as_view()),     # 申万指数合并
     path('restore/sw_mergeItem', MergeSWIndexData.as_view()), # 申万单个指数合并
+    
+    # 复权因子更新API
+    path('stocks/update/adjust_factor/start', AdjustFactorUpdateView.as_view()),# 更新复权因子
+    path('stocks/update/adjust_factor/status', AdjustFactorStatusView.as_view()),# 获取复权因子更新状态
+    path('stocks/update/adjust_factor/pause', QueueUpdatePauseView.as_view()),# 暂停复权因子更新
+    path('stocks/update/adjust_factor/resume', QueueUpdateResumeView.as_view()),# 恢复复权因子更新
+    
+    # 金融数据更新API
+    path('stocks/update/financial_data/start', FinancialDataUpdateView.as_view()),# 更新金融数据
+    path('stocks/update/financial_data/status', FinancialDataStatusView.as_view()),# 获取金融数据更新状态
+    path('stocks/update/financial_data/pause', FinancialDataPauseView.as_view()),# 暂停金融数据更新
+    path('stocks/update/financial_data/resume', FinancialDataResumeView.as_view()),# 恢复金融数据更新
 ]

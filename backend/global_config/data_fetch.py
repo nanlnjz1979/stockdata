@@ -224,7 +224,6 @@ class AkshareFetcher(DataFetcher):
             raise DataFetchError("akshare不可用")
         
         try:
-
             # 首先尝试调用 stock_zh_a_daily
             try:
                 logger.debug(f"尝试使用 stock_zh_a_daily 获取股票{code}数据")
@@ -262,6 +261,39 @@ class AkshareFetcher(DataFetcher):
                 return df
         except Exception as e:
             raise DataFetchError(f"获取股票{code}日K线数据失败: {str(e)}")
+    
+    def fetch_stock_adjust_factor(self, code: str, adjust: str = "qfq-factor") -> pd.DataFrame:
+        """
+        获取股票复权因子数据
+        
+        Args:
+            code: 股票代码
+            adjust: 复权因子类型，可选值：'qfq-factor'(前复权因子), 'hfq-factor'(后复权因子), 'bfq-factor'(不复权因子)
+            
+        Returns:
+            pd.DataFrame: 复权因子数据，包含日期、收盘价、复权因子等字段
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.debug(f"尝试获取股票{code}的复权因子数据，复权类型：{adjust}")
+            
+            # 使用ak.stock_zh_a_daily获取复权因子数据，不需要指定开始时间和结束时间
+            df = self._retry_wrapper(
+                self.ak.stock_zh_a_daily,
+                symbol=make_symbol(code),
+                adjust=adjust
+            )
+            
+            logger.info(f"成功获取股票{code}的复权因子数据")
+            return df
+        except Exception as e:
+            logger.error(f"获取股票{code}的复权因子数据失败: {str(e)}")
+            raise DataFetchError(f"获取复权因子数据失败: {str(e)}")
     
     def fetch_sw_industry_first_info(self) -> pd.DataFrame:
         """
@@ -381,6 +413,38 @@ class AkshareFetcher(DataFetcher):
         except Exception as e:
             raise DataFetchError(f"获取申万行业指标数据失败: {str(e)}")
     
+    def fetch_stock_financial_data(self, code: str) -> pd.DataFrame:
+        """
+        获取股票财务数据并处理
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            pd.DataFrame: 处理后的财务数据
+            
+        Raises:
+            DataFetchError: 数据抓取失败
+        """
+        if not self.is_available():
+            raise DataFetchError("akshare不可用")
+        
+        try:
+            logger.info(f"开始抓取股票{code}的财务摘要数据")
+            # 调用ak.stock_financial_abstract获取财务数据
+            df = self._retry_wrapper(
+                self.ak.stock_financial_abstract,
+                symbol=code
+            )
+            logger.info(f"成功抓取股票{code}的财务摘要数据")
+            
+            # 处理数据
+            processed_df = _get_and_process_financial_data(df, code)
+            
+            return processed_df
+        except Exception as e:
+            raise DataFetchError(f"获取股票{code}财务数据失败: {str(e)}")
+    
 class DataFetchFactory:
     """
     数据抓取工厂类
@@ -417,12 +481,157 @@ class DataFetchFactory:
 
 
 
-def get_stock_daily(code: str, start_date: str, end_date: str, adjust: str = "qfq", **kwargs) -> pd.DataFrame:
+def get_stock_daily(code: str, start_date: str, end_date: str, adjust: str = "", **kwargs) -> pd.DataFrame:
     """
     获取股票日K线数据的便捷方法
     """
     fetcher = DataFetchFactory.get_fetcher(**kwargs)
     return fetcher.fetch_stock_daily(code, start_date, end_date, adjust)
+    
+# 中文指标到英文缩写的硬编码映射字典
+# 格式："大分类_中文指标" -> "大分类缩写_英文指标缩写"（下划线替换连字符）
+CHINESE_TO_ENGLISH_MAPPING = {
+    # 常用指标 (Common Metrics - CM)
+    "常用指标_归母净利润": "CM_NPAS",
+    "常用指标_营业总收入": "CM_TOR",
+    "常用指标_营业成本": "CM_OC",
+    "常用指标_净利润": "CM_NP",
+    "常用指标_扣非净利润": "CM_NRNP",
+    "常用指标_股东权益合计(净资产)": "CM_TSE_NA",
+    "常用指标_商誉": "CM_GW",
+    "常用指标_经营现金流量净额": "CM_NOCF",
+    "常用指标_基本每股收益": "CM_BEPS",
+    "常用指标_每股净资产": "CM_NAPS",
+    "常用指标_每股现金流": "CM_CFPS",
+    "常用指标_净资产收益率(ROE)": "CM_ROE",
+    "常用指标_总资产报酬率(ROA)": "CM_ROA",
+    "常用指标_毛利率": "CM_GM",
+    "常用指标_销售净利率": "CM_NPM",
+    "常用指标_期间费用率": "CM_PER",
+    "常用指标_资产负债率": "CM_ALR",
+    
+    # 每股指标 (Per Share Indicators - PSI)
+    "每股指标_基本每股收益": "PSI_BEPS",
+    "每股指标_稀释每股收益": "PSI_DEPS",
+    "每股指标_摊薄每股收益_最新股数": "PSI_DEPS_LSC",
+    "每股指标_摊薄每股净资产_期末股数": "PSI_DNAPS_PSC",
+    "每股指标_调整每股净资产_期末股数": "PSI_ANAPS_PSC",
+    "每股指标_每股净资产_最新股数": "PSI_NAPS_LSC",
+    "每股指标_每股经营现金流": "PSI_OCFPS",
+    "每股指标_每股现金流量净额": "PSI_NCFPS",
+    "每股指标_每股企业自由现金流量": "PSI_FCFFPS",
+    "每股指标_每股股东自由现金流量": "PSI_FCFEPS",
+    "每股指标_每股未分配利润": "PSI_UPPS",
+    "每股指标_每股资本公积金": "PSI_CRPS",
+    "每股指标_每股盈余公积金": "PSI_SRPS",
+    "每股指标_每股留存收益": "PSI_REPS",
+    "每股指标_每股营业收入": "PSI_ORPS",
+    "每股指标_每股营业总收入": "PSI_TORPS",
+    "每股指标_每股息税前利润": "PSI_EBITPS",
+    
+    # 盈利能力 (Profitability - PCP)
+    "盈利能力_净资产收益率(ROE)": "PCP_ROE",
+    "盈利能力_摊薄净资产收益率": "PCP_DROE",
+    "盈利能力_净资产收益率_平均": "PCP_AROE",
+    "盈利能力_净资产收益率_平均_扣除非经常损益": "PCP_AROE_ENR",
+    "盈利能力_摊薄净资产收益率_扣除非经常损益": "PCP_DROE_ENR",
+    "盈利能力_息税前利润率": "PCP_EBITM",
+    "盈利能力_总资产报酬率": "PCP_ROA",
+    "盈利能力_总资本回报率": "PCP_ROTC",
+    "盈利能力_投入资本回报率": "PCP_ROIC",
+    "盈利能力_息前税后总资产报酬率_平均": "PCP_AROAAt_EI",
+    "盈利能力_毛利率": "PCP_GM",
+    "盈利能力_销售净利率": "PCP_NPM",
+    "盈利能力_成本费用利润率": "PCP_CEPR",
+    "盈利能力_营业利润率": "PCP_OPM",
+    "盈利能力_总资产净利率_平均": "PCP_ANPMTA",
+    "盈利能力_总资产净利率_平均(含少数股东损益)": "PCP_ANPMTA_IMI",
+    
+    # 成长能力 (Growth Capability - GCP)
+    "成长能力_归母净利润": "GCP_NPAS",
+    "成长能力_营业总收入": "GCP_TOR",
+    "成长能力_净利润": "GCP_NP",
+    "成长能力_扣非净利润": "GCP_NRNP",
+    "成长能力_营业总收入增长率": "GCP_TORGR",
+    "成长能力_归属母公司净利润增长率": "GCP_GRNPAPC",
+    
+    # 收益质量 (Earnings Quality - EQL)
+    "收益质量_经营活动净现金/销售收入": "EQL_NOCF_SR",
+    "收益质量_经营性现金净流量/营业总收入": "EQL_NOCF_TOR",
+    "收益质量_成本费用率": "EQL_CER",
+    "收益质量_期间费用率": "EQL_PER",
+    "收益质量_销售成本率": "EQL_CSR",
+    "收益质量_经营活动净现金/归属母公司的净利润": "EQL_NOCF_NPAPC",
+    "收益质量_所得税/利润总额": "EQL_IT_TP",
+    
+    # 财务风险 (Financial Risk - FR)
+    "财务风险_流动比率": "FR_CR",
+    "财务风险_速动比率": "FR_QR",
+    "财务风险_保守速动比率": "FR_CQR",
+    "财务风险_资产负债率": "FR_ALR",
+    "财务风险_权益乘数": "FR_EM",
+    "财务风险_权益乘数(含少数股权的净资产)": "FR_EM_IMINA",
+    "财务风险_产权比率": "FR_DER",
+    "财务风险_现金比率": "FR_CashR",
+    
+    # 营运能力 (Operating Capability - OCP)
+    "营运能力_应收账款周转率": "OCP_ART",
+    "营运能力_应收账款周转天数": "OCP_ARTD",
+    "营运能力_存货周转率": "OCP_IT",
+    "营运能力_存货周转天数": "OCP_ITD",
+    "营运能力_总资产周转率": "OCP_TAT",
+    "营运能力_总资产周转天数": "OCP_TATD",
+    "营运能力_流动资产周转率": "OCP_CAT",
+    "营运能力_流动资产周转天数": "OCP_CATD",
+    "营运能力_应付账款周转率": "OCP_APT"
+}
+
+def _get_and_process_financial_data(stock_financial_abstract_df,
+                                   stock_symbol):
+    """
+    处理股票财务数据
+    
+    参数:
+    stock_financial_abstract_df: pd.DataFrame, 股票财务摘要数据
+    stock_symbol: str, 股票代码
+    
+    返回:
+    pd.DataFrame, 处理后的财务数据，格式为：股票代码在前，日期在后，指标最后
+    """
+    # 打印获取的数据
+    print(stock_financial_abstract_df)
+    
+    # 打印映射字典示例
+    print("\n--- 中文到英文指标映射示例 ---")
+    for chinese_key, english_abbr in list(CHINESE_TO_ENGLISH_MAPPING.items())[:5]:
+        print(f"{chinese_key} -> {english_abbr}")
+    
+    # 1. 提取指标信息（大分类、指标名称、英文缩写）
+    indicator_info = stock_financial_abstract_df[['选项', '指标']].copy()
+    indicator_info['英文缩写'] = indicator_info.apply(lambda row: CHINESE_TO_ENGLISH_MAPPING.get(f"{row['选项']}_{row['指标']}", "UNKNOWN"), axis=1)
+    
+    # 2. 提取日期列（从第三列开始都是日期）
+    date_columns = stock_financial_abstract_df.columns[2:].tolist()
+    
+    # 3. 创建按日期组织的新DataFrame
+    # 第一列：股票代码
+    # 第二列：日期（格式为YYYY-MM-DD）
+    # 后续列：每个指标的数值，列名为指标的英文缩写
+    new_data = []
+    for date in date_columns:
+        # 将日期从YYYYMMDD格式转换为YYYY-MM-DD格式
+        formatted_date = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+        # 为每个日期创建一行数据，股票代码作为第一列
+        row_data = {'code': stock_symbol, 'date': formatted_date}
+        for idx, row in indicator_info.iterrows():
+            # 获取该日期下对应指标的数值
+            row_data[row['英文缩写']] = stock_financial_abstract_df.loc[idx, date]
+        new_data.append(row_data)
+    
+    # 4. 创建最终DataFrame
+    final_df = pd.DataFrame(new_data)
+    
+    return final_df
     
 from datetime import datetime, date as date_type
 from typing import Union

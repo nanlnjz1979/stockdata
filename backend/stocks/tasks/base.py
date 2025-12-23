@@ -20,8 +20,8 @@ class BaseTask(ABC):
 
     def __init__(
         self,
-        orm,
-        task_type: str,
+        orm = None,
+        task_type: str = "",
         task_desc: str = "",
         params: Optional[Union[Dict[str, Any], str]] = None,
         priority: int = 0,

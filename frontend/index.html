@@ -818,6 +818,24 @@
               </div>
               <div id="queueUpdateStatus" class="status" style="margin-top:8px;">空闲</div>
             </div>
+            <div class="card">
+              <h3>复权因子更新</h3>
+              <div class="status">更新股票复权因子数据</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn" id="updateAdjustFactor">更新复权因子</button>
+                <button class="btn outline" id="updateAdjustFactorToggle" disabled>暂停</button>
+              </div>
+              <div id="updateAdjustFactorStatus" class="status" style="margin-top:8px;">未触发</div>
+            </div>
+            <div class="card">
+              <h3>金融数据更新</h3>
+              <div class="status">更新股票财务数据</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn" id="updateFinancialData">更新金融数据</button>
+                <button class="btn outline" id="updateFinancialDataToggle" disabled>暂停</button>
+              </div>
+              <div id="updateFinancialDataStatus" class="status" style="margin-top:8px;">未触发</div>
+            </div>
           </div>
         </section>
 
@@ -888,12 +906,15 @@
         <section id="tasks" class="section">
           <div class="card">
             <h3>过滤</h3>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <select id="taskTypeFilter" class="input"><option value="">全部类型</option></select>
-              <select id="taskStatusFilter" class="input"><option value="">全部状态</option></select>
-              <input id="taskParamSearch" class="input" placeholder="参数包含..." />
-              <button class="btn" id="taskApply">应用筛选</button>
-              <button class="btn" id="taskRetryFailed">失败重试</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content: space-between; align-items: center;">
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <select id="taskTypeFilter" class="input"><option value="">全部类型</option></select>
+                <select id="taskStatusFilter" class="input"><option value="">全部状态</option></select>
+                <input id="taskParamSearch" class="input" placeholder="参数包含..." />
+                <button class="btn" id="taskApply">应用筛选</button>
+                <button class="btn" id="taskRetryFailed">失败重试</button>
+              </div>
+              <button class="btn" id="taskDeleteAll">删除所有任务</button>
             </div>
           </div>
           <div class="card" id="taskListCard">
@@ -1042,6 +1063,10 @@
                     <input id="backupFileName" type="text" class="input" style="width: 300px;" value="data\daily" placeholder="data\daily" />
                     <button id="restoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
                     <span id="restoreStatus" style="color: #666;">就绪</span>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                      <input type="checkbox" id="useCluster" name="useCluster" />
+                      <label for="useCluster" style="color: #666; font-size: 14px;">是否加入集群</label>
+                    </div>
                   </div>
                   <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
                     <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
@@ -1079,6 +1104,54 @@
                     </div>
                     <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
                       <div id="swRestoreProgressBar" style="width: 0%; height: 20px; background-color: #4CAF50; transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 复权因子数据恢复 -->
+                <div style="flex: 1; min-width: 400px; padding: 16px; background-color: #f9f7ff; border-radius: 6px;">
+                  <h4 style="margin-top: 0; margin-bottom: 12px; font-weight: 500;">复权因子数据恢复</h4>
+                  <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                    <input id="adjustFactorBackupFileName" type="text" class="input" style="width: 300px;" value="data\adjust_factors" placeholder="data\adjust_factors" />
+                    <button id="adjustFactorRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <span id="adjustFactorRestoreStatus" style="color: #666;">就绪</span>
+                  </div>
+                  <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                    <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
+                    警告：复权因子数据恢复操作将覆盖当前复权因子数据，请确保已做好必要的备份！
+                  </div>
+                  
+                  <div id="adjustFactorRestoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                      <span>恢复进度：</span>
+                      <span id="adjustFactorRestoreProgressText">0%</span>
+                    </div>
+                    <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
+                      <div id="adjustFactorRestoreProgressBar" style="width: 0%; height: 20px; background-color: #9C27B0; transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 财务数据恢复 -->
+                <div style="flex: 1; min-width: 400px; padding: 16px; background-color: #f0fff4; border-radius: 6px;">
+                  <h4 style="margin-top: 0; margin-bottom: 12px; font-weight: 500;">财务数据恢复</h4>
+                  <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                    <input id="financialBackupFileName" type="text" class="input" style="width: 300px;" value="data\financial_data" placeholder="data\financial_data" />
+                    <button id="financialRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <span id="financialRestoreStatus" style="color: #666;">就绪</span>
+                  </div>
+                  <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                    <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
+                    警告：财务数据恢复操作将覆盖当前财务数据，请确保已做好必要的备份！
+                  </div>
+                  
+                  <div id="financialRestoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                      <span>恢复进度：</span>
+                      <span id="financialRestoreProgressText">0%</span>
+                    </div>
+                    <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
+                      <div id="financialRestoreProgressBar" style="width: 0%; height: 20px; background-color: #4CAF50; transition: width 0.3s ease;"></div>
                     </div>
                   </div>
                 </div>

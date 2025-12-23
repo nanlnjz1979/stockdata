@@ -67,7 +67,7 @@ class StockInfo:
                 cls.logger.info(f"成功获取并缓存股票信息，共{len(list_stocks)}条记录")
             else:
                 cls.logger.warning("未获取到股票信息")
-                
+            cls.save_stocks_to_db(list_stocks)
             return list_stocks
         except Exception as e:
             cls.logger.error(f"获取所有股票信息失败: {str(e)}")
@@ -168,3 +168,70 @@ class StockInfo:
         except Exception as e:
             cls.logger.error(f"获取市场{market}的股票信息失败: {str(e)}")
             return []
+    
+    @classmethod
+    def save_stocks_to_db(cls, stocks: List[Dict[str, Any]]) -> bool:
+        """
+        将股票数据保存到ClickHouse数据库的stock_info表中
+        
+        Args:
+            stocks: 股票数据列表，每条数据包含code, name, company_name, market, listing_date字段
+            
+        Returns:
+            bool: 保存是否成功
+        """
+        if not stocks or not isinstance(stocks, list):
+            cls.logger.warning("无效的股票数据，必须是非空列表")
+            return False
+        
+        try:
+            cls.logger.info(f"开始保存{len(stocks)}条股票数据到数据库")
+            
+            # 获取数据库连接
+            conn = get_conn()
+            
+            # 构建INSERT查询 - 不包含listing_date，让ClickHouse使用默认值
+            insert_query = """
+                INSERT INTO stock_info (code, name, company_name, market)
+                VALUES
+            """
+            
+            # 准备数据
+            data = []
+            
+            for stock in stocks:
+                # 提取所需字段，确保字段存在
+                code = stock.get('code', '')
+                name = stock.get('name', '')
+                company_name = stock.get('company_name', '')
+                market = stock.get('market', '')
+                
+                # 跳过缺少必要字段的数据
+                if not code or not name:
+                    cls.logger.warning(f"跳过无效股票数据，缺少必要字段: {stock}")
+                    continue
+                
+                # 只插入必填字段，listing_date使用ClickHouse默认值
+                data.append((code, name, company_name, market))
+            
+            if not data:
+                cls.logger.warning("没有有效数据可保存")
+                put_conn(conn)
+                return False
+            
+            # 执行INSERT语句
+            conn.execute(insert_query, data)
+            cls.logger.info(f"成功保存{len(data)}条股票数据到数据库")
+            
+            # 归还数据库连接
+            put_conn(conn)
+            return True
+            
+        except Exception as e:
+            cls.logger.error(f"保存股票数据到数据库失败: {str(e)}")
+            try:
+                # 确保连接被归还
+                put_conn(conn)
+            except:
+                pass
+            return False

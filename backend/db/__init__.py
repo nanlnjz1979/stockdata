@@ -7,7 +7,17 @@ from .db_pool import (
     put_conn,
     close_pool,
     get_pool_stats,
-    QuestDBConnectionPool
+    DatabaseConnectionPool
+)
+
+# 从mongodb_pool导入MongoDB连接池函数
+from .mongodb_pool import (
+    get_mongo_pool,
+    get_mongo_conn,
+    put_mongo_conn,
+    close_mongo_pool,
+    get_mongo_pool_stats,
+    MongoDBConnectionPool
 )
 
 # 从import_utils导入辅助函数
@@ -32,7 +42,14 @@ __all__ = [
     'put_conn',
     'close_pool',
     'get_pool_stats',
-    'QuestDBConnectionPool',
+    'DatabaseConnectionPool',
+    # mongodb_pool functions
+    'get_mongo_pool',
+    'get_mongo_conn',
+    'put_mongo_conn',
+    'close_mongo_pool',
+    'get_mongo_pool_stats',
+    'MongoDBConnectionPool',
     # import_utils functions
     'add_project_paths',
     'import_with_fallback',

@@ -135,7 +135,7 @@ class DTBInstTradingTrackerTask(BaseTask):
       - end_date: 结束日期（可选，YYYYMMDD/YYYY-MM-DD；默认今天）
     """
 
-    def __init__(self, orm):
+    def __init__(self, orm = None):
         super().__init__(orm, task_type="", task_desc="", params=None, priority=0)
 
     def generate(self, task_type: str, task_desc: str = "", params: Optional[Dict[str, Any]] = None, priority: int = 2,conn=None) -> str:

@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .db_pool import get_conn, put_conn
+from backend.db.db_pool import get_conn, put_conn
 from datetime import datetime
 
 

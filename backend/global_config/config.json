@@ -1,4 +1,22 @@
 {
+    "database": {
+        "host": "192.168.1.16",
+        "port": 9000,
+        "httpport": 8123,
+        "user": "default",
+        "password": "",
+        "database": "default",
+        "comment": "ClickHouse数据库连接配置，端口9000用于native协议，8123用于HTTP API",
+        "comment_3": "HTTP服务端口配置"
+    },
+    "mongodb": {
+        "host": "localhost",
+        "port": 27017,
+        "user": "",
+        "password": "",
+        "database": "stockdata",
+        "comment": "MongoDB数据库连接配置"
+    },
     "sw_index": "https://legulegu.com/api/stockdata/sw-industry-2021?industryCode={sw_code}&token=0b8b7ab709bee8cea2965e31e20bec12",
     "to_csv": true,
     "comment_1": "更新数据到csv文件中",

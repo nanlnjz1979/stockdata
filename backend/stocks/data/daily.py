@@ -11,11 +11,10 @@ from global_config.file_config import FileConfig
 from db.stock_data import StockData
 
 class DailyDataView(APIView):
-    def _get_data_from_database(self, symbol, code, start_date, end_date, adjust):
+    def _get_data_from_database(self, code, start_date, end_date, adjust):
         """从数据库读取股票数据
         
         Args:
-            symbol: 完整股票代码（可能带前缀）
             code: 纯数字股票代码
             start_date: 开始日期，格式为'YYYY-MM-DD'
             end_date: 结束日期，格式为'YYYY-MM-DD'
@@ -24,68 +23,44 @@ class DailyDataView(APIView):
         Returns:
             Response对象，包含查询结果或错误信息
         """
-        try:
-            import psycopg2
-            from psycopg2 import OperationalError
-        except Exception:
-            return Response({'error': '缺少 psycopg2 依赖，无法连接 QuestDB'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        # 添加项目路径以便导入db模块
-        import sys
-        import os
-        project_root = os.path.join(os.path.dirname(__file__), '..', '..', '..')
-        if project_root not in sys.path:
-            sys.path.append(project_root)
-        
         # 导入连接池
-        try:
-            from backend.db.db_pool import get_conn, put_conn
-        except Exception:
-            # 如果导入失败，设置为None
-            get_conn, put_conn = None, None
+        from db.db_pool import get_conn, put_conn
         
+        conn = None
+        items = []
         try:
             # 尝试使用连接池获取连接
             conn = get_conn()
-            conn.autocommit = True
-        except OperationalError as e:
-            return Response({'error': f'QuestDB连接失败: {str(e)}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        except Exception as e:
-            return Response({'error': f'连接异常: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        cur = conn.cursor()
-        where = ["code=%s", "trade_date >= %s", "trade_date <= %s"]
-        params = [code, start_date, end_date]
-        if adjust is not None:
-            adj = str(adjust).strip()
-            if adj == '':
-                where.append("adjust_type IS NULL")
-            else:
-                where.append("adjust_type=%s")
-                params.append(adj)
-        where_sql = ' WHERE ' + ' AND '.join(where)
-        
-        items = []
-        try:
-            cur.execute(
+            
+            # 构建查询条件
+            where = ["code = %s", "date >= %s", "date <= %s"]
+            params = [code, start_date, end_date]
+            where_sql = ' WHERE ' + ' AND '.join(where)
+            
+            # 执行查询 - ClickHouse客户端直接支持execute方法，不需要cursor
+            rows = conn.execute(
                 f"""
-                SELECT  trade_date,  open, close, high, low, volume, amount, turnover, outstanding_share
-                FROM stock_daily
+                SELECT date, open, close, high, low, volume, amount, turnover, outstanding_share
+                FROM stock_daily_v
                 {where_sql}
-                ORDER BY trade_date ASC
+                ORDER BY date ASC
                 """,
                 params
             )
-            rows = cur.fetchall() or []
+            
             for r in rows:
                 td = r[0]
                 td_s = None
                 try:
-                    td_s = td.strftime('%Y-%m-%d')
+                    # ClickHouse返回的日期已经是字符串格式'YYYY-MM-DD'
+                    td_s = str(td)
+                    # 确保格式正确，去掉可能的时间部分
+                    if 'T' in td_s or ' ' in td_s:
+                        td_s = td_s.split('T')[0].split(' ')[0]
                 except Exception:
-                    s = str(td)
-                    # 取日期部分（去掉时间），保留破折号格式
-                    td_s = s.split('T')[0].split(' ')[0]
+                    # 处理异常情况
+                    td_s = str(td).split('T')[0].split(' ')[0]
+                
                 items.append([
                      td_s,
                      r[1],
@@ -97,25 +72,16 @@ class DailyDataView(APIView):
                      r[8],
                      r[7],
                 ])
+        
         except Exception as e:
-            # 确保关闭连接
-            try:
-                if put_conn:
-                    put_conn(conn)
-                else:
-                    conn.close()
-            except Exception:
-                pass
+            # 确保归还连接
+            if conn:
+                put_conn(conn)
             return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # 归还连接到连接池或关闭连接
-        try:
-            if put_conn:
-                put_conn(conn)
-            else:
-                conn.close()
-        except Exception:
-            pass
+        # 归还连接到连接池
+        if conn:
+            put_conn(conn)
         
         return Response(items)
     
@@ -150,18 +116,18 @@ class DailyDataView(APIView):
             if not df.empty:
                 for _, row in df.iterrows():
                     # 确保日期格式正确
-                    trade_date = row['trade_date']
-                    if isinstance(trade_date, datetime):
-                        td_s = trade_date.strftime('%Y-%m-%d')
+                    date = row['date']
+                    if isinstance(date, datetime):
+                        td_s = date.strftime('%Y-%m-%d')
                     else:
                         try:
                             # 尝试直接处理字符串
-                            td_s = str(trade_date)
+                            td_s = str(date)
                             # 处理可能的时间部分
                             if 'T' in td_s or ' ' in td_s:
                                 td_s = td_s.split('T')[0].split(' ')[0]
                         except:
-                            td_s = str(trade_date)
+                            td_s = str(date)
                     
                     items.append([
                         td_s,
@@ -186,7 +152,7 @@ class DailyDataView(APIView):
           - symbol: 如 sh603843（必填）
           - start_date: YYYYMMDD（默认 19900101）
           - end_date: YYYYMMDD（默认 21000118）
-          - adjust: ""/"hfq"/"qfq"；为空字符串表示查询 adjust_type 为 NULL；未传则不筛选复权类型
+          - adjust: 已废弃，不再使用
         """
         # 从配置中获取数据来源设置，默认为'database'
         data_source = FileConfig.get('data_source', 'database')
@@ -232,4 +198,4 @@ class DailyDataView(APIView):
             return self._get_data_from_file(symbol, code, start_date, end_date, adjust)
         else:
             # 从数据库读取数据
-            return self._get_data_from_database(symbol, code, start_date, end_date, adjust)
+            return self._get_data_from_database(code, start_date, end_date, adjust)

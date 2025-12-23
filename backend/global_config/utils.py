@@ -170,14 +170,14 @@ def is_all_holiday(start: Union[str, date], end: Union[str, date]) -> bool:
     return True
 
 
-def save_to_csv(code, df, adj,file_name:str=None):
+def save_to_csv(code, df, file_name:str=None):
     """
     保存股票数据到CSV文件
     
     Args:
         code: 股票代码
         df: 包含股票数据的DataFrame
-        adj: 复权类型
+        adj: 复权类型（已废弃，仅用于兼容旧代码）
         
     Returns:
         保存的行数，如果失败返回0
@@ -202,7 +202,7 @@ def save_to_csv(code, df, adj,file_name:str=None):
         
         # 重命名列名，与数据库保持一致
         cols = {
-            'date': 'trade_date',
+            'date': 'date',
             '日期': 'date',
             '开盘': 'open',
             '收盘': 'close',
@@ -219,13 +219,9 @@ def save_to_csv(code, df, adj,file_name:str=None):
         if 'code' not in df.columns:
             df['code'] = code
         
-        # 只有当adj不为None时才添加复权类型列（用于单复权类型保存）
-        if adj is not None and 'adjust_type' not in df.columns:
-            df['adjust_type'] = adj if (adj and str(adj).strip()) else None
-        
         # 确保日期格式正确
-        if 'trade_date' in df.columns:
-            df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ')  # 格式化为ISO 8601格式
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d %H:%M:%S')  # 格式化为ISO 8601格式
         
         # 转换数值类型，确保正确的数值格式
         numeric_columns = ['open', 'close', 'high', 'low', 'amount', 'turnover', 'outstanding_share']
@@ -239,8 +235,8 @@ def save_to_csv(code, df, adj,file_name:str=None):
             df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype('int64')
         
         # 按照数据库列顺序调整DataFrame列顺序
-        # 数据库列顺序：code, trade_date, adjust_type, open, close, high, low, volume, amount, turnover, outstanding_share
-        db_columns = ['code', 'trade_date', 'adjust_type', 'open', 'close', 'high', 'low', 'volume', 'amount', 'turnover', 'outstanding_share']
+        # 数据库列顺序：code, date, open, close, high, low, volume, amount, turnover, outstanding_share
+        db_columns = ['code', 'date', 'open', 'close', 'high', 'low', 'volume', 'amount', 'turnover', 'outstanding_share']
         
         # 只保留存在的列
         available_columns = []
@@ -252,6 +248,10 @@ def save_to_csv(code, df, adj,file_name:str=None):
         for col in df.columns:
             if col not in available_columns:
                 available_columns.append(col)
+        
+        # 移除adjust_type列（如果存在）
+        if 'adjust_type' in df.columns:
+            df = df.drop(columns=['adjust_type'])
         
         # 调整列顺序
         df = df[available_columns]
@@ -265,5 +265,5 @@ def save_to_csv(code, df, adj,file_name:str=None):
         
         return len(df)
     except Exception as e:
-        logger.exception("保存到CSV文件失败: code=%s, adj=%s, error=%s", code, adj, e)
+        logger.exception("保存到CSV文件失败: code=%s, error=%s", code, e)
         return 0

@@ -2,6 +2,9 @@ import re
 from datetime import datetime
 from typing import Dict
 
+# 导入MongoDB连接相关函数
+from backend.db import get_mongo_conn, put_mongo_conn
+
 
 class GlobalConfig:
     """
@@ -11,7 +14,7 @@ class GlobalConfig:
         GlobalConfig.load_env()  # 可选，模块导入时已自动执行一次
         params = GlobalConfig.qdb_params()
     """
-# 默认 schedule_configs 数据，用于初始化或恢复
+    # 默认 schedule_configs 数据，用于初始化或恢复
     DEFAULT_SCHEDULE_CONFIGS = {
         "LHB_InstituteTrack": {
             "name": "机构席位追踪(龙虎榜)",
@@ -29,36 +32,47 @@ class GlobalConfig:
         }
     }
 
-    def __init__(self, questdb_conn):
+    def __init__(self, mongo_conn=None):
         """
-        初始化时从 QuestDB 的 schedule_configs 表读取配置，存入字典。
-        :param questdb_conn: 已建立好的 QuestDB 连接对象（无需再次连接）
+        初始化时从 MongoDB 的 schedule_configs 集合读取配置，存入字典。
+        :param mongo_conn: 已建立好的 MongoDB 连接对象（可选，不提供则自动获取）
         """
         self._schedule_configs: Dict[str, str] = {}
-        cursor = questdb_conn.cursor()
+        
+        # 获取MongoDB连接
+        conn = mongo_conn or get_mongo_conn()
+        should_close = not mongo_conn
+        
         try:
-            cursor.execute(
-                "SELECT id,  name, task_desc, params, schedule_time, enabled FROM schedule_configs"
-            )
-            rows = cursor.fetchall()
+            # 获取数据库和集合
+            db = conn['stockdata']
+            schedule_configs_col = db['schedule_configs']
+            
+            # 从MongoDB读取所有配置
+            rows = list(schedule_configs_col.find())
+            
             for row in rows:
-                _id,  name, task_desc, params, schedule_time, enabled = row
-                self._schedule_configs[_id] = {
-                    "name": name,
-                    "task_desc": task_desc,
-                    "params": params,
-                    "schedule_time": schedule_time,
-                    "enabled": enabled
-                }
+                _id = row.get('_id')
+                if _id:
+                    self._schedule_configs[_id] = {
+                        "name": row.get("name"),
+                        "task_desc": row.get("task_desc"),
+                        "params": row.get("params"),
+                        "schedule_time": row.get("schedule_time"),
+                        "enabled": row.get("enabled")
+                    }
+            
             # 如果默认配置项不在_schedule_configs中，则补充进去
             for key, value in self.DEFAULT_SCHEDULE_CONFIGS.items():
                 if key not in self._schedule_configs:
                     self._schedule_configs[key] = value
 
             # 将补充后的配置写回数据库
-            self.save_all_schedule_configs_to_db(questdb_conn)
+            self.save_all_schedule_configs_to_db(conn)
         finally:
-            cursor.close()
+            # 如果是自动获取的连接，则关闭
+            if should_close and conn:
+                put_mongo_conn(conn)
        
 
     def get_schedule_config(self, key: str, default: str = None) -> str:
@@ -78,69 +92,39 @@ class GlobalConfig:
         """
         self._schedule_configs[key] = value
 
-    @staticmethod
-    def _normalize_schedule_time_for_db(val):
-        if val is None:
-            return None
-        if isinstance(val, datetime):
-            return val
-        s = str(val).strip()
-        # 支持 HH:MM 或 HH:MM:SS
-        if re.match(r"^\d{2}:\d{2}(:\d{2})?$", s):
-            if len(s) == 5:
-                s = s + ":00"
-            return f"1970-01-01 {s}"
-        # 其他情况直接返回字符串，交由驱动解析
-        return s
-
-    @staticmethod
-    def _normalize_enabled_for_db(val):
-        if isinstance(val, bool):
-            return 1 if val else 0
-        if isinstance(val, (int,)):
-            return 1 if val != 0 else 0
-        s = str(val).strip().lower()
-        return 1 if s in ("1", "true", "t", "yes", "y") else 0
-
-    def save_all_schedule_configs_to_db(self, questdb_conn):
+    def save_all_schedule_configs_to_db(self, mongo_conn=None):
         """
-        将内存中的 schedule_configs 全部写回数据库。
-        表结构：id symbol (主键), name, task_desc, params, schedule_time, enabled
+        将内存中的 schedule_configs 全部写回MongoDB。
+        集合结构：_id, name, task_desc, params, schedule_time, enabled
         """
-        cursor = questdb_conn.cursor()
+        # 获取MongoDB连接
+        conn = mongo_conn or get_mongo_conn()
+        should_close = not mongo_conn
+        
         try:
-            # 先清空原表，再批量插入
-            cursor.execute("TRUNCATE TABLE schedule_configs")
+            # 获取数据库和集合
+            db = conn['stockdata']
+            schedule_configs_col = db['schedule_configs']
+            
+            # 先清空原集合，再批量插入
+            schedule_configs_col.delete_many({})
+            
+            # 准备插入的数据
+            insert_data = []
             for _id, cfg in self._schedule_configs.items():
-                sql = (
-                    """
-                    INSERT INTO schedule_configs
-                        (id, name, task_desc, params, schedule_time, enabled)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """
-                )
-                params = (
-                    _id,
-                    cfg["name"],
-                    cfg["task_desc"],
-                    cfg["params"],
-                    GlobalConfig._normalize_schedule_time_for_db(cfg.get("schedule_time")),
-                    GlobalConfig._normalize_enabled_for_db(cfg.get("enabled")),
-                )
-                #print("[GlobalConfig] SQL:", sql.strip())
-                #print("[GlobalConfig] Params:", params)
-                try:
-                    cursor.execute(sql, params)
-                except Exception as e:
-                    import traceback
-                    print("[GlobalConfig] Execute error:", e)
-                    try:
-                        print("[GlobalConfig] Params (repr):", repr(params))
-                    except Exception:
-                        pass
-                    traceback.print_exc()
-                    # 继续抛出，便于上层看到错误并中止
-                    raise
-            questdb_conn.commit()
+                insert_data.append({
+                    "_id": _id,
+                    "name": cfg["name"],
+                    "task_desc": cfg["task_desc"],
+                    "params": cfg["params"],
+                    "schedule_time": cfg.get("schedule_time"),
+                    "enabled": cfg.get("enabled")
+                })
+            
+            # 批量插入到MongoDB
+            if insert_data:
+                schedule_configs_col.insert_many(insert_data)
         finally:
-            cursor.close()
+            # 如果是自动获取的连接，则关闭
+            if should_close and conn:
+                put_mongo_conn(conn)

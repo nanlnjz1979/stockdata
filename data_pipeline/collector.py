@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import json
 
 # 添加项目路径到sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'backend'))
@@ -13,23 +14,36 @@ except ImportError:
     def get_db_pool_functions():
         return None, None
 
-# 新增：QuestDB PG 连接
-try:
-    import psycopg2
-except Exception:
-    psycopg2 = None
-
-def qdb_connect():
-    """连接 QuestDB（PG wire），从环境变量读取连接信息。"""
-    if not psycopg2:
-        return None
-    import os
-    host = os.getenv('QDB_HOST', 'localhost')
-    port = int(os.getenv('QDB_PORT', '8812'))
-    user = os.getenv('QDB_USER', 'admin')
-    password = os.getenv('QDB_PASS', 'quest')
-    dbname = os.getenv('QDB_DB', 'qdb')
+# 从配置文件读取数据库连接参数
+def get_db_config():
+    """从配置文件读取数据库连接参数。"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'global_config', 'config.json')
     try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config.get('database', {})
+    except Exception as e:
+        logging.error(f"读取配置文件失败: {e}")
+        # 返回默认配置
+        return {
+            'host': 'localhost',
+            'port': 9000,
+            'user': 'default',
+            'password': '',
+            'database': 'default'
+        }
+
+def get_db_connection():
+    """获取数据库连接，支持ClickHouse和QuestDB。"""
+    try:
+        # 从配置文件读取数据库连接参数
+        db_config = get_db_config()
+        host = db_config.get('host', 'localhost')
+        port = db_config.get('port', 9000)
+        user = db_config.get('user', 'default')
+        password = db_config.get('password', '')
+        database = db_config.get('database', 'default')
+        
         # 尝试使用连接池获取连接
         get_conn, put_conn = get_db_pool_functions()
         if get_conn:
@@ -39,98 +53,112 @@ def qdb_connect():
                     port=port,
                     user=user,
                     password=password,
-                    dbname=dbname
+                    database=database
                 )
                 return conn
             except Exception as e:
-                logging.warning(f"使用连接池失败，回退到直接连接: {e}")
-        # 如果连接池不可用，直接创建连接
-        conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
-        conn.autocommit = True
-        return conn
-    except Exception:
+                logging.warning(f"使用连接池失败: {e}")
+                return None
+        return None
+    except Exception as e:
+        logging.error(f"获取数据库连接失败: {e}")
         return None
 
 
 # 修改：允许复用连接
-def qdb_ensure_tables(conn=None):
-    conn = conn or qdb_connect()
+def ensure_tables(conn=None):
+    conn = conn or get_db_connection()
     if not conn:
         return False
     try:
-        cur = conn.cursor()
-        cur.execute("""
-          create table if not exists stock_daily (
-            code symbol index,     --股票代码
-            trade_date timestamp,  --交易日期时间戳
-            adjust_type symbol,    --复权类型
-            open double,           --开盘价
-            close double,          --收盘价
-            high double,           --最高价
-            low double,            --最低价
-            volume long,           --成交量
-            amount double,         --成交额
-            turnover double,       --换手率
-            outstanding_share double --流通股本
-          ) TIMESTAMP(trade_date) PARTITION BY DAY  DEDUP UPSERT KEYS(code, trade_date, adjust_type); --按交易日按天分区
-        """)
-        #目前就用questdb做存储，然后做个检查程序，如果某一天的任务状态status都变成已完成，就把这个分区删掉，分区通过创建时间分区
-        cur.execute("""
-          create table if not exists tasks (
-            task_id string,           --任务唯一标识符(UUID格式)
-            task_type symbol,         --任务类型，如下载、更新等    例如LHB_InstituteTrack
-            task_desc string,         --任务描述信息
-            task_params string,       --任务参数，JSON格式
-            priority int,             --任务优先级，数字越大优先级越高
-            status symbol,            --任务状态，如待处理、处理中、已完成等
-            created_at timestamp,     --任务创建时间
-            started_at timestamp,     --任务开始执行时间
-            ended_at timestamp        --任务结束时间
-          ) TIMESTAMP(created_at) PARTITION BY DAY; --按任务创建时间按天分区
-        """)
+        # ClickHouse客户端对象直接支持execute方法，不需要cursor
+        if hasattr(conn, 'execute'):  # ClickHouse客户端对象
+            # 创建stock_daily表
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS stock_daily (
+                    code String,
+                    date DateTime,
+                    open Float64,
+                    close Float64,
+                    high Float64,
+                    low Float64,
+                    volume Int64,
+                    amount Float64,
+                    turnover Float64,
+                    outstanding_share Float64
+                ) ENGINE = MergeTree()
+                PARTITION BY toDate(date)
+                ORDER BY (code, date);
+            """)
+            
+            # 创建tasks表
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id String,
+                    task_type String,
+                    task_desc String,
+                    task_params String,
+                    priority Int32,
+                    status String,
+                    created_at DateTime,
+                    started_at DateTime,
+                    ended_at DateTime
+                ) ENGINE = MergeTree()
+                PARTITION BY toDate(created_at)
+                ORDER BY (task_id);
+            """)
 
-        cur.execute(    
-            """
-            create table if not exists inst_trading_tracker (   --机构席位追踪表
-              ingest_date timestamp,     --查询的日期时间,大部分是入库的时间戳
-              code symbol,          --股票的代码
-              name string,          --股票名称
-              buy_amount double,    -- 累计买入额(单位: 万)
-              buy_times int,        -- 累计买入次数
-              sell_amount double,   -- 累计卖出额(单位: 万)
-              sell_times int,       -- 累计卖出次数
-              net_amount double,    -- 净额(单位: 万)（net_amount = buy_amount - sell_amount）
-              query_type int        -- 查询类型（5/10/30/60天）
-            ) TIMESTAMP(ingest_date) PARTITION BY DAY ; --按入库时间按天分区
-            """
-        )
+            # 创建inst_trading_tracker表
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS inst_trading_tracker (
+                    ingest_date DateTime,
+                    code String,
+                    name String,
+                    buy_amount Float64,
+                    buy_times Int32,
+                    sell_amount Float64,
+                    sell_times Int32,
+                    net_amount Float64,
+                    query_type Int32
+                ) ENGINE = MergeTree()
+                PARTITION BY toDate(ingest_date)
+                ORDER BY (code, ingest_date, query_type);
+            """)
 
-        # 新增：参数配置表（计划任务）
-        cur.execute("""
-          create table if not exists schedule_configs (
-            id   symbol ,           --任务类型，例如:LHB_InstituteTrack
-            name string,            --任务名称
-            task_desc string,       --任务描述
-            params string,          --Download_Full_Daily(下载日线数据)/ Institutional_Trading_Tracking(机构席位追踪)
-            schedule_time timestamp,--例如每天16点
-            enabled int             --是否开启
-          );
-        """)
-
-        if conn is not qdb_connect:
-            pass
-        return True
-    except Exception:
-            # 使用连接池归还连接而不是直接关闭
-            try:
-                put_conn, _ = get_db_pool_functions()
-                if put_conn:
-                    put_conn(conn)
-                else:
-                    conn.close()
-            except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+            # 创建schedule_configs表
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS schedule_configs (
+                    id String,
+                    name String,
+                    task_desc String,
+                    params String,
+                    schedule_time DateTime,
+                    enabled Int32
+                ) ENGINE = MergeTree()
+                ORDER BY (id);
+            """)
+        elif hasattr(conn, 'cursor'):  # 传统数据库连接
+            cursor = conn.cursor()
+            # 这里可以添加传统数据库的表创建逻辑
+            cursor.close()
+        else:
+            logging.error("无法识别的数据库连接类型")
             return False
+        
+        logging.info("成功创建表（如果不存在）")
+        return True
+    except Exception as e:
+        logging.error(f"创建表失败: {e}")
+        # 使用连接池归还连接而不是直接关闭
+        try:
+            put_conn, _ = get_db_pool_functions()
+            if put_conn:
+                put_conn(conn)
+            else:
+                if hasattr(conn, 'disconnect'):  # ClickHouse客户端对象
+                    conn.disconnect()
+                else:  # 传统数据库连接
+                    conn.close()
+        except Exception as close_e:
+            logging.error(f"关闭连接失败: {close_e}")
+        return False

@@ -52,7 +52,6 @@ class StockData:
             # 定义列的数据类型映射
             dtype_map = {
                 'code': str,
-                'adjust_type': str,
                 'open': float,
                 'close': float,
                 'high': float,
@@ -67,23 +66,19 @@ class StockData:
             df = pd.read_csv(
                 csv_file,
                 dtype=dtype_map,
-                parse_dates=['trade_date'],  # 自动解析trade_date列为日期时间类型
+                parse_dates=['date'],  # 自动解析date列为日期时间类型
                 keep_default_na=False  # 保留原始空字符串，不转换为NaN
             )
             
-            # 确保adjust_type列存在且空值被处理为空字符串
-            if 'adjust_type' in df.columns:
-                df['adjust_type'] = df['adjust_type'].fillna('')
-            
-            # 设置trade_date为索引并存入缓存
-            cls._stock_dfs[std_code] = df.set_index('trade_date')
+            # 设置date为索引并存入缓存
+            cls._stock_dfs[std_code] = df.set_index('date')
         
         # 从缓存中获取DataFrame
         df = cls._stock_dfs[std_code].copy()
         
         # 打印df的前5行
         #print(df.head())
-        # 由于已经设置了trade_date为索引，使用索引进行筛选
+        # 由于已经设置了date为索引，使用索引进行筛选
         # 根据s_time和e_time筛选时间范围内的数据
         start_datetime = pd.to_datetime(s_time)
         end_datetime = pd.to_datetime(e_time)
@@ -107,34 +102,20 @@ class StockData:
                 print(f"索引切片失败: {e}，尝试条件筛选")
                 # 获取索引为日期的DataFrame副本
                 df_copy = df.reset_index()
-                # 确保trade_date列的时区一致性
-                if pd.api.types.is_datetime64tz_dtype(df_copy['trade_date']):
-                    df_copy['trade_date'] = df_copy['trade_date'].dt.tz_localize(None)
+                # 确保date列的时区一致性
+                if pd.api.types.is_datetime64tz_dtype(df_copy['date']):
+                    df_copy['date'] = df_copy['date'].dt.tz_localize(None)
                 # 使用条件筛选
-                mask = (df_copy['trade_date'] >= start_datetime) & (df_copy['trade_date'] <= end_datetime)
-                df = df_copy[mask].set_index('trade_date')
+                mask = (df_copy['date'] >= start_datetime) & (df_copy['date'] <= end_datetime)
+                df = df_copy[mask].set_index('date')
         else:
             # 如果索引不是DatetimeIndex或DataFrame为空，返回空DataFrame
             df = pd.DataFrame()
         print(df.head())
-        # 根据adjust参数筛选相应的复权类型数据
-        if 'adjust_type' in df.columns:
-            # 将输入的adjust参数转换为对应的值
-            adjust_map = {
-                '前复权': 'qfq',
-                '后复权': 'hfq',
-                '不复权': '',
-                '': ''  # 显式处理空字符串情况，对应不复权
-            }
-            
-            # 获取实际需要筛选的值
-            adjust_value = adjust_map.get(adjust, adjust)
-            
-            # 筛选指定的复权类型，包括空值情况
-            df = df[df['adjust_type'] == adjust_value]
+        # 移除adjust_type相关筛选，因为数据库已移除该字段
         
-        # 确保返回的DataFrame中包含trade_date列（将索引转换为列）
-        if not df.empty and df.index.name == 'trade_date':
+        # 确保返回的DataFrame中包含date列（将索引转换为列）
+        if not df.empty and df.index.name == 'date':
             df = df.reset_index()
         
         return df
