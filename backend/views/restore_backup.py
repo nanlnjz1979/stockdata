@@ -398,6 +398,9 @@ class RestoreStockData(APIView):
             elif table_name == 'stock_fin':
                 stock_schema = "(code, date, CM_NPAS, CM_TOR, CM_OC, CM_NP, CM_NRNP, CM_TSE_NA, CM_GW, CM_NOCF, CM_BEPS, CM_NAPS, CM_CFPS, CM_ROE, CM_ROA, CM_GM, CM_NPM, CM_PER, CM_ALR, PSI_BEPS, PSI_DEPS, PSI_DEPS_LSC, PSI_DNAPS_PSC, PSI_ANAPS_PSC, PSI_NAPS_LSC, PSI_OCFPS, PSI_NCFPS, PSI_FCFFPS, PSI_FCFEPS, PSI_UPPS, PSI_CRPS, PSI_SRPS, PSI_REPS, PSI_ORPS, PSI_TORPS, PSI_EBITPS, PCP_ROE, PCP_DROE, PCP_AROE, PCP_AROE_ENR, PCP_DROE_ENR, PCP_EBITM, PCP_ROA, PCP_ROTC, PCP_ROIC, PCP_AROAAt_EI, PCP_GM, PCP_NPM, PCP_CEPR, PCP_OPM, PCP_ANPMTA, PCP_ANPMTA_IMI, GCP_NPAS, GCP_TOR, GCP_NP, GCP_NRNP, GCP_TORGR, GCP_GRNPAPC, EQL_NOCF_SR, EQL_NOCF_TOR, EQL_CER, EQL_PER, EQL_CSR, EQL_NOCF_NPAPC, EQL_IT_TP, FR_CR, FR_QR, FR_CQR, FR_ALR, FR_EM, FR_EM_IMINA, FR_DER, FR_CashR, OCP_ART, OCP_ARTD, OCP_IT, OCP_ITD, OCP_TAT, OCP_TATD, OCP_CAT, OCP_CATD, OCP_APT)"
                 timestamp_col="date"
+            elif table_name == 'stock_index':
+                stock_schema = "(code, name, index_code, index_name)"
+                timestamp_col="code"
 
             # 调用封装的导入函数，使用动态表名
             success, message, data = import_csv_to_database(

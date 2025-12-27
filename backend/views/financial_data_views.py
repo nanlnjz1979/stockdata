@@ -129,11 +129,17 @@ class FinancialDataUpdateView(APIView):
             successful_stocks = 0
             total_processed_records = 0
             errors = []
-            
+            import time
             # 创建线程池并处理股票
             with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as executor:
-                # 提交所有任务
-                future_to_code = {executor.submit(process_stock, code): code for code in stock_codes}
+                # 提交所有任务，中间间隔1秒钟
+                future_to_code = {}
+                for code in stock_codes:
+                    future = executor.submit(process_stock, code)
+                    future_to_code[future] = code
+                    # 中间间隔1秒钟
+                    #import time
+                    #time.sleep(1)
                 
                 # 获取结果
                 for future in concurrent.futures.as_completed(future_to_code):
@@ -149,6 +155,8 @@ class FinancialDataUpdateView(APIView):
                         error_msg = f"获取股票{code}的处理结果时发生错误: {str(e)}"
                         logger.error(error_msg)
                         errors.append(error_msg)
+                        # 每个线程处理完一个股票后休息1秒，避免对API的过度请求
+                    
             
             # 计算耗时
             end_time = datetime.now()

@@ -13,6 +13,7 @@ from views.config_views import ScheduleConfigView, ScheduleApplyView
 from views.restore_backup import GetRestoreStockFiles, RestoreStockData, MergeStockData, MergeStockItem, SwMergeData, MergeSWIndexData
 from views.adjust_factor_views import AdjustFactorUpdateView, AdjustFactorStatusView
 from views.financial_data_views import FinancialDataUpdateView, FinancialDataStatusView, FinancialDataPauseView, FinancialDataResumeView
+from views.index_components_views import IndexComponentsUpdateView, IndexComponentsStatusView, IndexComponentsPauseView, IndexComponentsResumeView, GetAllIndicesView
 router = DefaultRouter()
 router.register(r'stocks/basic', StockBasicViewSet, basename='stocks-basic')
 router.register(r'stocks/finance', StockFinanceViewSet, basename='stocks-finance')
@@ -84,4 +85,11 @@ urlpatterns = [
     path('stocks/update/financial_data/status', FinancialDataStatusView.as_view()),# 获取金融数据更新状态
     path('stocks/update/financial_data/pause', FinancialDataPauseView.as_view()),# 暂停金融数据更新
     path('stocks/update/financial_data/resume', FinancialDataResumeView.as_view()),# 恢复金融数据更新
+    
+    # 指数成份更新API
+    path('stocks/update/index_components/start', IndexComponentsUpdateView.as_view()),# 更新指数成份
+    path('stocks/update/index_components/status', IndexComponentsStatusView.as_view()),# 获取指数成份更新状态
+    path('stocks/update/index_components/pause', IndexComponentsPauseView.as_view()),# 暂停指数成份更新
+    path('stocks/update/index_components/resume', IndexComponentsResumeView.as_view()),# 恢复指数成份更新
+    path('stocks/update/index_components/all', GetAllIndicesView.as_view()),# 获取所有指数列表
 ]

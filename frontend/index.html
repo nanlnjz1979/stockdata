@@ -836,6 +836,15 @@
               </div>
               <div id="updateFinancialDataStatus" class="status" style="margin-top:8px;">未触发</div>
             </div>
+            <div class="card">
+              <h3>更新指数成份</h3>
+              <div class="status">更新指数成份股数据</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn" id="updateIndexComponents" style="z-index: 100; position: relative;">更新指数成份</button>
+                <button class="btn outline" id="updateIndexComponentsToggle" disabled>暂停</button>
+              </div>
+              <div id="updateIndexComponentsStatus" class="status" style="margin-top:8px;">未触发</div>
+            </div>
           </div>
         </section>
 
@@ -1156,6 +1165,30 @@
                   </div>
                 </div>
                 
+                <!-- 指数成份恢复 -->
+                <div style="flex: 1; min-width: 400px; padding: 16px; background-color: #fff0f5; border-radius: 6px;">
+                  <h4 style="margin-top: 0; margin-bottom: 12px; font-weight: 500;">指数成份恢复</h4>
+                  <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+                    <input id="indexComponentsFileName" type="text" class="input" style="width: 300px;" value="data\index_components" placeholder="data\index_components" />
+                    <button id="indexComponentsRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <span id="indexComponentsRestoreStatus" style="color: #666;">就绪</span>
+                  </div>
+                  <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                    <i class="ri-error-warning-line" style="color: #faad14; margin-right: 8px;"></i>
+                    警告：指数成份恢复操作将覆盖当前指数成份数据，请确保已做好必要的备份！
+                  </div>
+                  
+                  <div id="indexComponentsRestoreProgressContainer" style="display: none; width: 100%; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                      <span>恢复进度：</span>
+                      <span id="indexComponentsRestoreProgressText">0%</span>
+                    </div>
+                    <div class="progress-container" style="width: 100%; background-color: #f0f0f0; border-radius: 4px; overflow: hidden; position: relative;">
+                      <div id="indexComponentsRestoreProgressBar" style="width: 0%; height: 20px; background-color: #e91e63; transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
+                </div>
+                
                 <!-- RESULTING AREA -->
                 <div style="margin-top: 16px; margin-bottom: 16px; padding: 16px; background-color: #f5f7fa; border-radius: 6px; width: 100%;">
                 
@@ -1309,6 +1342,13 @@
   <div class="toast" id="toast" style="display:none"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-  <script src="app.js"></script>
+  <script>
+    // 确保DOM完全加载后再执行app.js
+    document.addEventListener('DOMContentLoaded', function() {
+      var script = document.createElement('script');
+      script.src = 'app.js';
+      document.body.appendChild(script);
+    });
+  </script>
 </body>
 </html>

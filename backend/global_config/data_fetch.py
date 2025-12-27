@@ -105,6 +105,150 @@ class AkshareFetcher(DataFetcher):
         """
         return self.ak is not None
     
+    def get_all_indices(self) -> List[Dict[str, Any]]:
+        """
+        获取所有指数列表
+        
+        Returns:
+            List[Dict[str, Any]]: 指数列表，包含指数代码和名称等信息
+        """
+        if not self.is_available():
+            logger.error("akshare不可用，无法获取指数列表")
+            return []
+        
+        try:
+            logger.info("开始获取所有指数列表")
+            
+            # 调用akshare的index_stock_info函数获取所有指数信息
+            df = self._retry_wrapper(self.ak.index_stock_info)
+            
+            if df is None:
+                logger.warning("获取指数数据返回None")
+                return []
+            
+            logger.info(f"获取到指数数据，数据类型: {type(df)}")
+            logger.info(f"数据形状: {df.shape}")
+            logger.info(f"列名: {list(df.columns)}")
+            
+            if df.empty:
+                logger.warning("获取到的指数数据为空")
+                return []
+            
+            # 打印前几行数据，便于调试
+            logger.info(f"数据前5行:\n{df.head()}")
+            
+            # 处理获取到的数据
+            indices = []
+            for _, r in df.iterrows():
+                # 尝试从不同的列名中获取指数代码和名称
+                code = None
+                name = None
+                
+                # 打印每一行的所有列和值，便于调试
+                logger.debug(f"行数据: {r.to_dict()}")
+                
+                # 获取指数代码
+                for key in ['代码', '证券代码', '指数代码', 'symbol', 'code', 'index_code']:
+                    if key in r:
+                        v = r[key]
+                        if v:
+                            code = str(v).strip()
+                            logger.debug(f"从列'{key}'获取到代码: {code}")
+                            break
+                
+                # 获取指数名称
+                for key in ['名称', '证券简称', '指数名称', 'name', 'index_name','display_name']:
+                    if key in r:
+                        v = r[key]
+                        if v:
+                            name = str(v).strip()
+                            logger.debug(f"从列'{key}'获取到名称: {name}")
+                            break
+                
+                if code:
+                    indices.append({
+                        'code': code,
+                        'name': name or code
+                    })
+                else:
+                    logger.warning(f"无法从行数据中获取指数代码: {r.to_dict()}")
+            
+            logger.info(f"成功获取所有指数列表，共{len(indices)}个指数")
+            return indices
+            
+        except Exception as e:
+            logger.error(f"获取所有指数列表失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def fetch_index_stock_cons(self, symbol: str = "000300") -> List[Dict[str, Any]]:
+        """
+        获取指数成分股
+        
+        Args:
+            symbol: 指数代码，默认为"000300"（沪深300指数）
+            
+        Returns:
+            List[Dict[str, Any]]: 指数成分股列表，包含股票代码和名称等信息
+        """
+        if not self.is_available():
+            logger.error("akshare不可用，无法获取指数成分股")
+            return []
+        
+        try:
+            logger.info(f"开始获取指数{symbol}的成分股")
+            
+            # 优先使用index_stock_cons_csindex获取指数成分股，失败后回退到index_stock_cons
+            try:
+                logger.info(f"尝试使用index_stock_cons_csindex获取指数{symbol}的成分股")
+                df = self._retry_wrapper(self.ak.index_stock_cons_csindex, symbol=symbol)
+            except Exception as e:
+                logger.warning(f"使用index_stock_cons_csindex获取指数{symbol}的成分股失败: {str(e)}")
+                logger.info(f"回退到使用index_stock_cons获取指数{symbol}的成分股")
+                # 回退到使用index_stock_cons
+                df = self._retry_wrapper(self.ak.index_stock_cons, symbol=symbol)
+            
+            if df is None or df.empty:
+                logger.warning(f"未获取到指数{symbol}的有效成分股数据")
+                return []
+            
+            # 处理获取到的数据
+            index_stocks = []
+            for _, r in df.iterrows():
+                # 尝试从不同的列名中获取股票代码和名称
+                code = None
+                name = None
+                
+                # 获取股票代码
+                for key in ['代码', '证券代码', 'A股代码', '股票代码', '成分券代码', 'symbol', 'code','品种代码']:
+                    v = r.get(key)
+                    if v:
+                        code = str(v).strip()
+                        break
+                
+                # 获取股票名称
+                for key in ['名称', '证券简称', 'A股简称', '股票简称', '成分券名称', 'name','品种名称']:
+                    v = r.get(key)
+                    if v:
+                        name = str(v).strip()
+                        break
+                
+                if code:
+                    index_stocks.append({
+                        'code': code,
+                        'name': name or code
+                    })
+            
+            logger.info(f"成功获取指数{symbol}的成分股，共{len(index_stocks)}只")
+            return index_stocks
+            
+        except Exception as e:
+            logger.error(f"获取指数{symbol}的成分股失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
     def fetch_all_stock_basic_info(self) -> List[Dict[str, Any]]:
         """
         获取所有市场（SH/SZ/BJ）的股票基础信息

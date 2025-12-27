@@ -3564,6 +3564,81 @@ const API_BASE = 'http://127.0.0.1:8000';
     }
   });
 
+  // 指数成份更新功能 - 简化版本，确保按钮点击能正常触发
+  console.log('开始初始化指数成份更新功能');
+  
+  // 直接绑定按钮点击事件，不使用可选链
+  document.getElementById('updateIndexComponents').addEventListener('click', async function() {
+    console.log('更新指数成份按钮被直接点击');
+    
+    // 获取状态元素
+    const statusEl = document.getElementById('updateIndexComponentsStatus');
+    statusEl.textContent = '更新中...';
+    
+    // 直接发送请求
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/stocks/update/index_components/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('请求已发送，状态码:', response.status);
+      const data = await response.json();
+      console.log('响应数据:', data);
+      
+      if (response.ok) {
+        statusEl.textContent = `已启动，${data.message || '开始更新指数成份'}`;
+        toast('指数成份更新已启动');
+        
+        // 启用暂停按钮
+        const toggleBtn = document.getElementById('updateIndexComponentsToggle');
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = '暂停';
+      } else {
+        statusEl.textContent = `失败：${data.error || data.detail || '未知错误'}`;
+        toast(`指数成份更新失败：${data.error || data.detail || '未知错误'}`);
+      }
+    } catch (error) {
+      console.error('更新指数成份失败:', error);
+      statusEl.textContent = `失败：${error.message}`;
+      toast(`指数成份更新失败：${error.message}`);
+    }
+  });
+
+  // 指数成份暂停/继续按钮事件 - 简化版本
+  document.getElementById('updateIndexComponentsToggle')?.addEventListener('click', async function() {
+    console.log('暂停/继续按钮被点击');
+    
+    // 获取状态元素
+    const statusEl = document.getElementById('updateIndexComponentsStatus');
+    
+    // 判断当前按钮文本，决定是暂停还是继续
+    const isPause = this.textContent === '暂停';
+    const url = isPause ? 
+      'http://127.0.0.1:8000/api/stocks/update/index_components/pause' : 
+      'http://127.0.0.1:8000/api/stocks/update/index_components/resume';
+    
+    try {
+      const response = await fetch(url, { method: 'POST' });
+      const data = await response.json();
+      
+      if (response.ok) {
+        // 更新按钮文本
+        this.textContent = isPause ? '继续' : '暂停';
+        // 更新状态文本
+        statusEl.textContent = isPause ? '已暂停' : '已继续';
+        toast(isPause ? '已暂停指数成份更新' : '已继续指数成份更新');
+      } else {
+        toast(`操作失败：${data.error || data.detail || '未知错误'}`);
+      }
+    } catch (error) {
+      console.error('暂停/继续操作失败:', error);
+      toast(`操作失败：${error.message}`);
+    }
+  });
+
   const updateTab = document.querySelector('.sidebar .tab[data-target="update"]');
 
   async function loadStatus(){
@@ -3649,6 +3724,25 @@ const API_BASE = 'http://127.0.0.1:8000';
     }
   }
 
+  // 轮询指数成份更新状态
+  async function pollIndexComponentsProgress() {
+    try {
+      const res = await fetch(`${API_BASE}/api/stocks/update/index_components/status`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.data) {
+          const statusData = data.data;
+          // 更新指数成份状态显示
+          if (indexComponentsStatusEl) {
+            indexComponentsStatusEl.textContent = `状态：${statusData.status} | 已更新：${statusData.updated_count}/${statusData.total_count} | 当前：${statusData.current_index}`;
+          }
+        }
+      }
+    } catch(e) {
+      console.error('轮询指数成份状态失败:', e);
+    }
+  }
+
   // 已删除增量更新按钮
   if (updateTab) updateTab.addEventListener('click', loadStatus);
   loadStatus();
@@ -3682,6 +3776,7 @@ const API_BASE = 'http://127.0.0.1:8000';
       refreshIntervalId = setInterval(() => {
         pollProgress();
         pollFinancialDataProgress();
+        pollIndexComponentsProgress();
       }, currentInterval);
     } else {
       // 隐藏自动刷新设置，显示手动刷新按钮
@@ -4887,6 +4982,118 @@ const API_BASE = 'http://127.0.0.1:8000';
     });
   }
   
+  // 指数成份恢复容器交互逻辑
+  const indexComponentsFileName = document.getElementById('indexComponentsFileName');
+  const indexComponentsRestoreBtn = document.getElementById('indexComponentsRestoreBtn');
+  const indexComponentsRestoreStatus = document.getElementById('indexComponentsRestoreStatus');
+  const indexComponentsRestoreProgressContainer = document.getElementById('indexComponentsRestoreProgressContainer');
+  const indexComponentsRestoreProgressBar = document.getElementById('indexComponentsRestoreProgressBar');
+  const indexComponentsRestoreProgressText = document.getElementById('indexComponentsRestoreProgressText');
+  
+  if (indexComponentsRestoreBtn && indexComponentsFileName) {
+    indexComponentsRestoreBtn.addEventListener('click', async () => {
+      try {
+        const path = indexComponentsFileName.value.trim();
+        if (!path) {
+          toast('请输入指数成份数据路径');
+          return;
+        }
+        
+        indexComponentsRestoreBtn.disabled = true;
+        indexComponentsRestoreStatus.textContent = '正在执行恢复...';
+        
+        // 添加开始日志
+        addLogEntry('', `开始恢复指数成份，路径: ${path}`, 'info', null, null, '指数成份恢复');
+        
+        // 调用后端API，传递路径并获取指数代码列表
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API请求失败: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.stock_codes && data.stock_codes.length > 0) {
+          addLogEntry('', `成功获取 ${data.stock_codes.length} 个指数代码`, 'info', null, null, '指数成份恢复');
+          
+          // 显示进度条
+          indexComponentsRestoreProgressContainer.style.display = 'block';
+          
+          // 对每个指数代码调用API进行恢复
+          const totalCodes = data.stock_codes.length;
+          let successCount = 0;
+          let failCount = 0;
+          
+          for (let i = 0; i < totalCodes; i++) {
+            const code = data.stock_codes[i];
+            
+            // 添加开始处理日志
+            const logEntry = addLogEntry(code, '开始恢复指数成份...', 'info', null, null, '指数成份恢复');
+            
+            try {
+              // 调用恢复API - 使用现有的RestoreStockData API，传递正确的table_name
+              const restoreResponse = await fetch(`${API_BASE}/api/restore/process`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ code: code, path: path, table_name: 'stock_index' })
+              });
+              
+              if (restoreResponse.ok) {
+                const result = await restoreResponse.json();
+                updateLogEntry(logEntry, result.message || '恢复成功', 'success');
+                successCount++;
+              } else {
+                updateLogEntry(logEntry, `恢复可能有问题，状态码: ${restoreResponse.status}`, 'warning');
+                failCount++;
+              }
+            } catch (restoreError) {
+              updateLogEntry(logEntry, `恢复失败: ${restoreError.message}`, 'error');
+              failCount++;
+            }
+            
+            // 更新进度条
+            const progress = Math.round(((i + 1) / totalCodes) * 100);
+            indexComponentsRestoreProgressBar.style.width = `${progress}%`;
+            indexComponentsRestoreProgressText.textContent = `${progress}% (${i + 1}/${totalCodes})`;
+          }
+          
+          // 添加总结日志
+          indexComponentsRestoreStatus.textContent = '恢复完成！';
+          const summaryMessage = `所有指数成份恢复完成。成功: ${successCount}, 失败: ${failCount}, 总数: ${totalCodes}`;
+          addLogEntry('', summaryMessage, failCount > 0 ? 'warning' : 'success', null, null, '指数成份恢复');
+          
+          // 隐藏进度条
+          setTimeout(() => {
+            indexComponentsRestoreProgressContainer.style.display = 'none';
+          }, 1000);
+          
+          toast(summaryMessage);
+        } else {
+          addLogEntry('', '未找到指数成份文件或路径不存在', 'warning', null, null, '指数成份恢复');
+          indexComponentsRestoreStatus.textContent = '恢复完成';
+        }
+        
+      } catch (error) {
+        console.error('指数成份恢复失败:', error);
+        indexComponentsRestoreStatus.textContent = '恢复失败！';
+        addLogEntry('', `恢复过程中发生错误: ${error.message}`, 'error', null, null, '指数成份恢复');
+        toast(`指数成份恢复失败: ${error.message}`);
+      } finally {
+        setTimeout(() => {
+          indexComponentsRestoreBtn.disabled = false;
+          indexComponentsRestoreStatus.textContent = '就绪';
+        }, 3000);
+      }
+    });
+  }
+
   // 模拟恢复过程的函数
   async function simulateRestoreProcess(fileName) {
     // 模拟不同阶段的恢复过程
