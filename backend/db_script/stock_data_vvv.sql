@@ -1,4 +1,4 @@
-CREATE VIEW default.stock_data_vv
+CREATE VIEW default.stock_data_vvv
 (
     `code` String,
     `market` String,
@@ -6,7 +6,7 @@ CREATE VIEW default.stock_data_vv
     `sw_first_level` String,
     `sw_second_level` String,
     `sw_third_level` String,
-    `price` Float64,
+    `close` Float64,
     `hfq` Float64,
     `pe` Float64,
     `pe_ttm` Float64,
@@ -96,7 +96,18 @@ CREATE VIEW default.stock_data_vv
 )
 AS SELECT
     fq.code AS code,
+    sis.market AS market,
+    sis.stock_name AS name,
+    sis.sw_first_level,
+    sis.sw_second_level,
+    sis.sw_third_level,
+    sis.price AS close,
     fq.hfq AS hfq,
+    sis.pe,
+    sis.pe_ttm,
+    sis.pb,
+    sis.dividend_yield,
+    sis.market_cap,
     sfv.CM_NPAS,
     sfv.CM_TOR,
     sfv.CM_OC,
@@ -176,18 +187,7 @@ AS SELECT
     sfv.OCP_TATD,
     sfv.OCP_CAT,
     sfv.OCP_CATD,
-    sfv.OCP_APT,
-    sis.market,
-    sis.stock_name AS name,
-    sis.sw_first_level,
-    sis.sw_second_level,
-    sis.sw_third_level,
-    sis.price,
-    sis.pe,
-    sis.pe_ttm,
-    sis.pb,
-    sis.dividend_yield,
-    sis.market_cap
+    sfv.OCP_APT
 FROM default.fq_factor AS fq
 INNER JOIN
 (
@@ -199,4 +199,3 @@ INNER JOIN
 ) AS max_dates ON (fq.code = max_dates.code) AND (fq.date = max_dates.max_date)
 INNER JOIN default.stock_fin_v1 AS sfv ON fq.code = sfv.code
 INNER JOIN default.sw_industry_stocks_v1 AS sis ON fq.code = sis.code
-ORDER BY fq.code ASC

@@ -1,4 +1,4 @@
-ATTACH TABLE _ UUID '9c343dfb-d95a-45a4-b67b-e84796907cae'
+CREATE TABLE default.fq_factor
 (
     `code` String,
     `date` DateTime,
@@ -10,5 +10,5 @@ ENGINE = ReplacingMergeTree(_version)
 PARTITION BY code
 PRIMARY KEY (code, date)
 ORDER BY (code, date)
-TTL date + toIntervalYear(10)
+TTL date + toIntervalYear(50)
 SETTINGS index_granularity = 8192

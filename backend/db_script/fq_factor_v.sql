@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID '003767e1-4065-4f39-95c0-1de2830372ce'
+CREATE VIEW default.fq_factor_v
 (
     `code` String,
     `date` DateTime,

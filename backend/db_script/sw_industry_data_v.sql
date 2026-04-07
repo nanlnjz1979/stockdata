@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID '369ed717-2c56-4d34-a36f-ab5a8e33dff0'
+CREATE VIEW default.sw_industry_data_v
 (
     `industry_code` String,
     `industry_name` String,

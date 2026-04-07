@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID '37c556cb-f448-4cb6-8d50-09faa240f5d4'
+CREATE VIEW default.stock_daily_qfq_v
 (
     `code` String,
     `date` DateTime,
@@ -14,10 +14,10 @@ ATTACH VIEW _ UUID '37c556cb-f448-4cb6-8d50-09faa240f5d4'
 AS SELECT
     s.code AS code,
     s.date AS date,
-    s.open * f.qfq AS open,
-    s.close * f.qfq AS close,
-    s.high * f.qfq AS high,
-    s.low * f.qfq AS low,
+    s.open / f.qfq AS open,
+    s.close / f.qfq AS close,
+    s.high / f.qfq AS high,
+    s.low / f.qfq AS low,
     s.volume,
     s.amount,
     s.turnover,
@@ -26,11 +26,15 @@ FROM default.stock_daily AS s
 INNER JOIN
 (
     SELECT
-        code,
-        max(date) AS latest_fq_date
-    FROM default.fq_factor
-    GROUP BY code
-) AS latest ON s.code = latest.code
+        s.code,
+        s.date,
+        max(f.date) AS latest_fq_date
+    FROM default.stock_daily AS s
+    INNER JOIN default.fq_factor AS f ON (s.code = f.code) AND (s.date >= f.date)
+    GROUP BY
+        s.code,
+        s.date
+) AS latest ON (s.code = latest.code) AND (s.date = latest.date)
 INNER JOIN
 (
     SELECT
@@ -42,4 +46,3 @@ INNER JOIN
         code,
         date
 ) AS f ON (f.code = latest.code) AND (f.date = latest.latest_fq_date)
-WHERE s.date >= latest.latest_fq_date

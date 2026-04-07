@@ -1,4 +1,4 @@
-ATTACH TABLE _ UUID 'a760c0b7-48f7-45e5-b085-677936311646'
+CREATE TABLE default.sw_index
 (
     `IndustryCode` String,
     `date` DateTime,
@@ -50,5 +50,5 @@ ATTACH TABLE _ UUID 'a760c0b7-48f7-45e5-b085-677936311646'
 ENGINE = ReplacingMergeTree(_version)
 PARTITION BY toYYYYMM(date)
 ORDER BY (IndustryCode, date)
-TTL date + toIntervalYear(10)
+TTL date + toIntervalYear(40)
 SETTINGS index_granularity = 8192

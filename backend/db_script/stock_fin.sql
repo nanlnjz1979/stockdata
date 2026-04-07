@@ -1,4 +1,4 @@
-ATTACH TABLE _ UUID '541ac60d-dd04-4c92-8a9e-c5f58b4eea7f'
+CREATE TABLE default.stock_fin
 (
     `code` String,
     `date` Date,
@@ -88,5 +88,5 @@ ENGINE = ReplacingMergeTree(_version)
 PARTITION BY toYYYYMM(date)
 PRIMARY KEY (code, date)
 ORDER BY (code, date)
-TTL date + toIntervalYear(15)
+TTL date + toIntervalYear(40)
 SETTINGS index_granularity = 8192

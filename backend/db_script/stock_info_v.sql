@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID '086a3e23-faee-4286-8ffe-4493d2010b9b'
+CREATE VIEW default.stock_info_v
 (
     `code` String,
     `name` String,

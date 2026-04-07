@@ -1,27 +1,27 @@
-CREATE VIEW default.stock_daily_hfq_v
+CREATE VIEW default.stock_daily_qfq_vv
 (
     `code` String,
     `date` DateTime,
     `open` Float64,
     `close` Float64,
-    `hfq` Float64,
     `high` Float64,
     `low` Float64,
     `volume` Int64,
     `amount` Float64,
-    `turnover` Float64
+    `turnover` Float64,
+    `outstanding_share` Float64
 )
 AS SELECT
     s.code AS code,
     s.date AS date,
-    s.open * f.hfq AS open,
-    s.close * f.hfq AS close,
-    f.hfq AS hfq,
-    s.high * f.hfq AS high,
-    s.low * f.hfq AS low,
+    s.open / f.qfq AS open,
+    s.close / f.qfq AS close,
+    s.high / f.qfq AS high,
+    s.low / f.qfq AS low,
     s.volume,
     s.amount,
-    s.turnover
+    s.turnover,
+    s.outstanding_share
 FROM default.stock_daily AS s
 INNER JOIN
 (
@@ -40,7 +40,7 @@ INNER JOIN
     SELECT
         code,
         date,
-        argMax(hfq, _version) AS hfq
+        argMax(qfq, _version) AS qfq
     FROM default.fq_factor
     GROUP BY
         code,

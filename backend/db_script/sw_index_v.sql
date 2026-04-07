@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID '129032c0-a559-4e2f-b6d9-aa71f8afa26e'
+CREATE VIEW default.sw_index_v
 (
     `IndustryCode` String,
     `date` DateTime,

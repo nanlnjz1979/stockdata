@@ -1,4 +1,4 @@
-ATTACH TABLE _ UUID '3f14cf1e-44ab-4b8d-8950-94a05cbcde87'
+CREATE TABLE default.sw_industry_stocks
 (
     `stock_code` String,
     `stock_name` String,

@@ -1,27 +1,29 @@
-CREATE VIEW default.stock_daily_hfq_v
+CREATE VIEW default.stock_daily_hfq_vv
 (
     `code` String,
     `date` DateTime,
     `open` Float64,
     `close` Float64,
-    `hfq` Float64,
+    `close_lag1` Float64,
     `high` Float64,
     `low` Float64,
     `volume` Int64,
     `amount` Float64,
-    `turnover` Float64
+    `turnover` Float64,
+    `outstanding_share` Float64
 )
 AS SELECT
     s.code AS code,
     s.date AS date,
     s.open * f.hfq AS open,
     s.close * f.hfq AS close,
-    f.hfq AS hfq,
+    lag(close, 1) OVER (PARTITION BY code ORDER BY date ASC) AS close_lag1,
     s.high * f.hfq AS high,
     s.low * f.hfq AS low,
     s.volume,
     s.amount,
-    s.turnover
+    s.turnover,
+    s.outstanding_share
 FROM default.stock_daily AS s
 INNER JOIN
 (

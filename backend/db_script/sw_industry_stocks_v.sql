@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID 'f647dc2c-4d5c-41f2-9721-66e2a4497e1b'
+CREATE VIEW default.sw_industry_stocks_v
 (
     `stock_code` String,
     `code` String,

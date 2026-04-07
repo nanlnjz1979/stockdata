@@ -1,4 +1,4 @@
-ATTACH VIEW _ UUID 'e0502862-d388-431f-a93a-2c61a6a80ca9'
+CREATE VIEW default.stock_fin_v1
 (
     `code` String,
     `date` Date,
