@@ -9,6 +9,8 @@ from .base import BaseTask
 from .download_daily import _insert_daily
 from backend.global_config.utils import is_all_holiday, save_to_csv
 from backend.global_config.file_config import FileConfig
+# 导入全局路径工具
+from stocks.utils import normalize_path, join_path, safe_join
 # 依赖：Akshare 数据源
 try:
     from backend.global_config.data_fetch import AkshareFetcher
@@ -133,7 +135,7 @@ def _get_all_stocks_last_date_cvs() -> Dict[str, datetime]:
     import glob
     
     # 构建CSV文件目录路径
-    csv_dir = os.path.join(os.path.dirname(__file__), '../../data/daily')
+    csv_dir = join_path(os.path.dirname(__file__), '../../data/daily')
     
     try:
         # 检查目录是否存在
@@ -397,7 +399,7 @@ class IncrementalUpdateTask(BaseTask):
             # 根据配置决定保存方式：互斥保存
             if to_csv:
                 # 只保存到文件
-                file_name = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'daily_append')
+                file_name = join_path(os.path.dirname(__file__), '..', '..', 'data', 'daily_append')
                 logger.info("开始保存数据到文件...")
                 all_data = []
                 for code_data, df_data, adj_data in collected_data:

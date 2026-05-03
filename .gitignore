@@ -5,3 +5,4 @@ __pycache__/
 backend/db.sqlite3
 backend/data/*
 backend/global_config/*.json
+backend/venv/

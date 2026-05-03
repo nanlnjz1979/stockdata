@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Optional, Any
 from datetime import date, timedelta
 from typing import Optional, Union
+# 导入全局路径工具
+from stocks.utils import normalize_path, join_path, safe_join
 
 
 def norm_date(d: any) -> Optional[str]:
@@ -194,9 +196,9 @@ def save_to_csv(code, df, file_name:str=None):
     try:
         # 创建CSV保存目录
         if file_name is None:
-            csv_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'daily')
+            csv_dir = join_path(os.path.dirname(__file__), '..', 'data', 'daily')
         else:
-            csv_dir = file_name
+            csv_dir = normalize_path(file_name)
             
         os.makedirs(csv_dir, exist_ok=True)
         
@@ -257,7 +259,7 @@ def save_to_csv(code, df, file_name:str=None):
         df = df[available_columns]
         
         # 构建文件名
-        csv_file = os.path.join(csv_dir, f"{code}.csv")
+        csv_file = join_path(csv_dir, f'{code}.csv')
         
         # 保存到CSV文件，使用QUOTE_ALL确保所有字段都用双引号包围
         # float_format=None让pandas自动选择合适的数值格式，可能包括科学计数法

@@ -9,6 +9,8 @@ from django.db import connection
 from datetime import datetime, timedelta
 from global_config.data_fetch import is_trading_day, DataFetchError
 from global_config.stock_info import StockInfo
+# 导入全局路径工具
+from stocks.utils import normalize_path, join_path, safe_join
 class DataIntegrityCheckView(APIView):
     def get(self, request):
         """获取数据完整性的统计信息 - 从ClickHouse数据库中获取数据，使用数据库连接池"""
@@ -787,13 +789,13 @@ class CSVStdCheck(APIView):
             # 3. 构建CSV文件路径
             import os
             import pandas as pd
-            csv_file_path = os.path.join('data', 'daily', f'{stock_code}.csv')
+            csv_file_path = join_path('data', 'daily', f'{stock_code}.csv')
             
             # 检查CSV文件是否存在
             if not os.path.exists(csv_file_path):
                 # 尝试使用绝对路径
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                csv_file_path = os.path.join(base_dir, 'data', 'daily', f'{stock_code}.csv')
+                csv_file_path = join_path(base_dir, 'data', 'daily', f'{stock_code}.csv')
                 
                 if not os.path.exists(csv_file_path):
                     return Response({

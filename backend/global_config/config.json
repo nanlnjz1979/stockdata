@@ -1,10 +1,10 @@
 {
     "database": {
-        "host": "192.168.1.16",
+        "host": "localhost",
         "port": 9000,
         "httpport": 8123,
         "user": "default",
-        "password": "",
+        "password": "123456",
         "database": "default",
         "comment": "ClickHouse数据库连接配置，端口9000用于native协议，8123用于HTTP API",
         "comment_3": "HTTP服务端口配置"

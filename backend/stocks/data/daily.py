@@ -9,6 +9,8 @@ import pandas as pd
 from global_config.file_config import FileConfig
 # 导入股票数据读取类
 from db.stock_data import StockData
+# 导入全局路径工具
+from stocks.utils import normalize_path, join_path, safe_join
 
 class DailyDataView(APIView):
     def _get_data_from_database(self, code, start_date, end_date, adjust):
@@ -100,9 +102,9 @@ class DailyDataView(APIView):
         """
         try:
             # 从配置中获取CSV文件目录
-            csv_dir = FileConfig.get('csv_data_dir', os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'daily'))
+            csv_dir = FileConfig.get('csv_data_dir', join_path(os.path.dirname(__file__), '..', '..', 'data', 'daily'))
             # 设置StockData的数据目录
-            StockData.set_data_dir(csv_dir)
+            StockData.set_data_dir(normalize_path(csv_dir))
             
             # 使用StockData.GetData获取数据
             # 将YYYY-MM-DD格式转换为YYYYMMDD格式

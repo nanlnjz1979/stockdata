@@ -6,6 +6,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/backend/manage.py",
+            "python": "${workspaceFolder}/backend/venv/bin/python3",
             "args": [
                 "runserver",
                 "0.0.0.0:8000",
@@ -23,6 +24,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/backend/manage.py",
+            "python": "${workspaceFolder}/backend/venv/bin/python3",
             "args": [
                 "runserver",
                 "0.0.0.0:8000"
@@ -39,6 +41,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/backend/manage.py",
+            "python": "${workspaceFolder}/backend/venv/bin/python3",
             "args": [
                 "shell"
             ],
@@ -54,6 +57,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/backend/manage.py",
+            "python": "${workspaceFolder}/backend/venv/bin/python3",
             "args": [
                 "runserver",
                 "0.0.0.0:8000",

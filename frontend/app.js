@@ -4550,7 +4550,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         addLogEntry('', '正在查询路径下的股票文件...', 'info');
         
         // 调用后端API，传递路径并获取股票代码列表
-        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: path })
@@ -4589,7 +4589,7 @@ const API_BASE = 'http://127.0.0.1:8000';
             
             try {
               // 调用恢复API，添加表名参数
-              const stockResponse = await fetch(`${API_BASE}/api/restore/process`, {
+              const stockResponse = await fetch(`${API_BASE}/api/restore/process/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: code, path: path, table_name: tableName })
@@ -4665,7 +4665,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         addLogEntry('', '正在查询路径下的申万指数文件...', 'info', null, null, '申万');
         
         // 调用后端API，传递路径并获取申万指数代码列表
-        const response = await fetch(`${API_BASE}/api/restore/get_sw_files`, {
+        const response = await fetch(`${API_BASE}/api/restore/get_sw_files/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: path })
@@ -4696,7 +4696,7 @@ const API_BASE = 'http://127.0.0.1:8000';
             
             try {
               // 调用恢复API
-              const swResponse = await fetch(`${API_BASE}/api/restore/process`, {
+              const swResponse = await fetch(`${API_BASE}/api/restore/process/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: code, path: path,table_name: 'sw_index' })
@@ -4779,7 +4779,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         addLogEntry('', '正在查询路径下的复权因子文件...', 'info', null, null, '复权因子');
         
         // 调用后端API，传递路径并获取复权因子代码列表
-        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: path })
@@ -4810,7 +4810,7 @@ const API_BASE = 'http://127.0.0.1:8000';
             
             try {
               // 调用恢复API
-              const adjustResponse = await fetch(`${API_BASE}/api/restore/process`, {
+              const adjustResponse = await fetch(`${API_BASE}/api/restore/process/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: code, path: path, table_name: 'fq_factor' })
@@ -4893,7 +4893,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         addLogEntry('', '正在查询路径下的财务文件...', 'info', null, null, '财务');
         
         // 调用后端API，传递路径并获取财务代码列表
-        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: path })
@@ -4924,7 +4924,7 @@ const API_BASE = 'http://127.0.0.1:8000';
             
             try {
               // 调用恢复API
-              const financialResponse = await fetch(`${API_BASE}/api/restore/process`, {
+              const financialResponse = await fetch(`${API_BASE}/api/restore/process/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: code, path: path, table_name: 'stock_fin' })
@@ -5006,7 +5006,7 @@ const API_BASE = 'http://127.0.0.1:8000';
         addLogEntry('', `开始恢复指数成份，路径: ${path}`, 'info', null, null, '指数成份恢复');
         
         // 调用后端API，传递路径并获取指数代码列表
-        const response = await fetch(`${API_BASE}/api/restore/get_stock_files`, {
+        const response = await fetch(`${API_BASE}/api/restore/get_stock_files/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: path })
@@ -5037,7 +5037,7 @@ const API_BASE = 'http://127.0.0.1:8000';
             
             try {
               // 调用恢复API - 使用现有的RestoreStockData API，传递正确的table_name
-              const restoreResponse = await fetch(`${API_BASE}/api/restore/process`, {
+              const restoreResponse = await fetch(`${API_BASE}/api/restore/process/`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json'
@@ -5185,7 +5185,7 @@ function deleteBackup(backupId) {
             
             try {
                 // 调用后端API
-                const response = await fetch(`${API_BASE}/api/restore/merge`, {
+                const response = await fetch(`${API_BASE}/api/restore/merge/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5195,7 +5195,7 @@ function deleteBackup(backupId) {
                         append_path: appendPath
                     })
                 });
-                console.log('API请求已发送，路径:', `${API_BASE}/api/restore/merge`);
+                console.log('API请求已发送，路径:', `${API_BASE}/api/restore/merge/`);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -5337,7 +5337,7 @@ function deleteBackup(backupId) {
                                     mergeLog.scrollTop = mergeLog.scrollHeight; // 自动滚动到底部
                                     
                                     // 调用mergeItem API
-                                    const mergeResponse = await fetch(`${API_BASE}/api/restore/mergeItem`, {
+                                    const mergeResponse = await fetch(`${API_BASE}/api/restore/mergeItem/`, {
                                         method: 'POST',
                                         headers: {
                                             'Content-Type': 'application/json',
@@ -5600,7 +5600,7 @@ if (document.readyState === 'loading') {
                 
                 try {
                     // 调用后端API - 申万指数合并专用
-                    const response = await fetch(`${API_BASE}/api/restore/sw_merge`, {
+                    const response = await fetch(`${API_BASE}/api/restore/sw_merge/`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -5758,7 +5758,7 @@ if (document.readyState === 'loading') {
                                         
                                         try {
                                             // 调用单个指数合并API
-                                            const response = await fetch(`${API_BASE}/api/restore/sw_mergeItem`, {
+                                            const response = await fetch(`${API_BASE}/api/restore/sw_mergeItem/`, {
                                                 method: 'POST',
                                                 headers: {
                                                     'Content-Type': 'application/json',

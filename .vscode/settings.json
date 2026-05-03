@@ -1,0 +1,5 @@
+{
+    "python.defaultInterpreterPath": "/Users/nan/git/stockdata/backend/venv/bin/python3",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true
+}

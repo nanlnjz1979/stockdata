@@ -64,15 +64,15 @@ urlpatterns = [
     
       # 股票文件处理相关API
 
-    path('restore/get_stock_files', GetRestoreStockFiles.as_view()),
-    path('restore/get_sw_files', GetRestoreStockFiles.as_view()),
-    path('restore/process', RestoreStockData.as_view()),# 下载备份文件
+    path('restore/get_stock_files/', GetRestoreStockFiles.as_view()),
+    path('restore/get_sw_files/', GetRestoreStockFiles.as_view()),
+    path('restore/process/', RestoreStockData.as_view()),
 
-    path('restore/merge', MergeStockData.as_view()),# 股票数据合并
-    path('restore/mergeItem', MergeStockItem.as_view()),# 单个股票数据合并
+    path('restore/merge/', MergeStockData.as_view()),
+    path('restore/mergeItem/', MergeStockItem.as_view()),
 
-    path('restore/sw_merge', SwMergeData.as_view()),     # 申万指数合并
-    path('restore/sw_mergeItem', MergeSWIndexData.as_view()), # 申万单个指数合并
+    path('restore/sw_merge/', SwMergeData.as_view()),
+    path('restore/sw_mergeItem/', MergeSWIndexData.as_view()),
     
     # 复权因子更新API
     path('stocks/update/adjust_factor/start', AdjustFactorUpdateView.as_view()),# 更新复权因子

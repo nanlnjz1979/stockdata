@@ -1,5 +1,13 @@
 import os
+import sys
 from pathlib import Path
+
+# 禁用代理设置
+# 防止服务端代码受到客户端代理设置的影响
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
+os.environ['HTTP_PROXY'] = ''
+os.environ['HTTPS_PROXY'] = ''
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -59,6 +67,8 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+APPEND_SLASH = False
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
