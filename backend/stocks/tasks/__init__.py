@@ -1,9 +1,13 @@
+import logging
+
 from .base import BaseTask
 from .download_daily import DownloadDailyTask
 from .tasksOrm import QtasksOrm
 from .DTBInstTradingTracker import DTBInstTradingTrackerTask
 from .incremental_update import IncrementalUpdateTask
 from .scheduler import run_config_job
+
+logger = logging.getLogger(__name__)
 
 # 导入任务监控模块
 try:
@@ -27,4 +31,4 @@ try:
         'run_config_job',
     ]
 except Exception as e:
-    print(f"Error importing task monitor: {e}")
+    logger.exception("导入任务监控模块失败: %s", e)

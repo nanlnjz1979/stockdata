@@ -73,7 +73,7 @@ def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, 
     if not conn_local:
         return 0
     try:
-        cur = conn_local.cursor()
+        # ClickHouse客户端直接使用execute方法批量插入，不需要cursor
         ingest_date = datetime.now()
         values = [
             (
@@ -90,11 +90,11 @@ def _insert_inst_trading(rows: List[Tuple[str, str, float, float, float, float, 
             for (cd, name, buy_amt, buy_times, sell_amt, sell_times, net_amt) in rows
         ]
         try:
-            cur.executemany(
+            conn_local.execute(
                 """
-                insert into inst_trading_tracker (
+                INSERT INTO inst_trading_tracker (
                   ingest_date, code, name, buy_amount, buy_times, sell_amount, sell_times, net_amount, query_type
-                ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ) VALUES
                 """,
                 values,
             )
@@ -163,12 +163,11 @@ class DTBInstTradingTrackerTask(BaseTask):
             if not conn:
                 logger.warning("QuestDB 连接失败，无法获取最后更新日期")
                 return None
-            cur = conn.cursor()
-            cur.execute("SELECT max(ingest_date) FROM inst_trading_tracker")
-            row = cur.fetchone()
-            if row and row[0]:
-                # QuestDB 返回的 date 类型可直接使用
-                return row[0]
+            # ClickHouse客户端直接使用execute方法，不需要cursor
+            result = conn.execute("SELECT max(ingest_date) FROM inst_trading_tracker")
+            if result and result[0]:
+                # ClickHouse 返回的 date 类型可直接使用
+                return result[0][0]
             return None
         except Exception as e:
             logger.exception("查询最后更新日期失败: %s", e)

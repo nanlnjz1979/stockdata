@@ -26,7 +26,7 @@ class GlobalConfig:
         "STOCK_Update": {
             "name": "更新新每日股票数据",
             "task_desc": "更新新每日股票数据",
-            "params": '{"market":"CN","adjust":"hfq"}',
+            "params": '{"market":"CN","adjust":""}',
             "schedule_time": "16:30",
             "enabled": 1
         }

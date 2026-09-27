@@ -6,12 +6,24 @@ import traceback
 from datetime import datetime, timedelta
 import pandas as pd
 import os
+import threading
 from django.conf import settings
 from db import get_conn, put_conn
 from global_config.data_fetch import AkshareFetcher, DataFetchError
 from global_config.file_config import FileConfig
 
 logger = logging.getLogger(__name__)
+
+adjust_factor_update_status = {
+    "running": False,
+    "paused": False,
+    "total_count": 0,
+    "updated_count": 0,
+    "status": "idle",
+    "last_update_time": datetime.now().isoformat(),
+    "current_code": "-"
+}
+adjust_factor_status_lock = threading.Lock()
 
 class AdjustFactorUpdateView(APIView):
     """
@@ -21,6 +33,7 @@ class AdjustFactorUpdateView(APIView):
     """
     
     def post(self, request):
+        global adjust_factor_update_status
         try:
             # 记录开始时间
             start_time = datetime.now()
@@ -33,6 +46,16 @@ class AdjustFactorUpdateView(APIView):
             
             # 从股票基础信息中提取股票代码列表
             stock_codes = [stock.get('code', '') for stock in basics if stock.get('code')]
+            with adjust_factor_status_lock:
+                adjust_factor_update_status = {
+                    "running": True,
+                    "paused": False,
+                    "total_count": len(stock_codes),
+                    "updated_count": 0,
+                    "status": "running",
+                    "last_update_time": start_time.isoformat(),
+                    "current_code": "-"
+                }
             
             # 创建保存复权因子数据的目录
             adjust_factor_dir = os.path.join(settings.BASE_DIR, 'data', 'adjust_factors')
@@ -42,6 +65,8 @@ class AdjustFactorUpdateView(APIView):
             total_files_saved = 0
             total_records = 0
             
+            status_lock = threading.Lock()
+
             def process_stock(code):
                 """
                 处理单个股票的复权因子数据
@@ -50,6 +75,13 @@ class AdjustFactorUpdateView(APIView):
                 nonlocal total_files_saved, total_records
                 
                 try:
+                    # 检查是否暂停，如果暂停则等待恢复
+                    import time
+                    while adjust_factor_update_status.get("paused") and adjust_factor_update_status.get("running"):
+                        time.sleep(0.5)
+                    
+                    with status_lock:
+                        adjust_factor_update_status["current_code"] = code
                     logger.info(f"线程开始处理股票{code}的复权因子数据")
                     
                     # 每个线程创建自己的AkshareFetcher实例
@@ -92,13 +124,18 @@ class AdjustFactorUpdateView(APIView):
                             merged_df.to_csv(csv_file_path, index=False, encoding='utf-8')
                             
                             logger.info(f"线程成功保存股票{code}的复权因子数据到文件: {csv_file_path}，共{len(merged_df)}条记录")
-                            
+                            with status_lock:
+                                adjust_factor_update_status["updated_count"] += 1
                             return (True, len(merged_df), None)
+                    with status_lock:
+                        adjust_factor_update_status["updated_count"] += 1
                     return (False, 0, "没有获取到有效数据")
                 except Exception as e:
                     error_msg = f"处理股票{code}的复权因子数据失败: {str(e)}"
                     logger.error(error_msg)
                     traceback.print_exc()
+                    with status_lock:
+                        adjust_factor_update_status["updated_count"] += 1
                     return (False, 0, error_msg)
             
             # 使用线程池并行处理股票
@@ -133,6 +170,16 @@ class AdjustFactorUpdateView(APIView):
             # 计算耗时
             end_time = datetime.now()
             time_cost = (end_time - start_time).total_seconds()
+            with adjust_factor_status_lock:
+                adjust_factor_update_status = {
+                    "running": False,
+                    "paused": False,
+                    "total_count": len(stock_codes),
+                    "updated_count": len(stock_codes),
+                    "status": "completed",
+                    "last_update_time": end_time.isoformat(),
+                    "current_code": "-"
+                }
             
             logger.info(f"复权因子数据更新完成，共处理{len(stock_codes)}只股票，成功{successful_stocks}只，保存{total_processed_records}条记录，耗时{time_cost:.2f}秒")
             
@@ -152,11 +199,78 @@ class AdjustFactorUpdateView(APIView):
             return Response(response_data)
             
         except Exception as e:
+            with adjust_factor_status_lock:
+                adjust_factor_update_status = {
+                    "running": False,
+                    "paused": False,
+                    "total_count": 0,
+                    "updated_count": 0,
+                    "status": "failed",
+                    "last_update_time": datetime.now().isoformat(),
+                    "current_code": "-"
+                }
             logger.error(f"更新复权因子数据失败: {str(e)}")
             logger.error(traceback.format_exc())
             return Response({
                 "success": False,
                 "message": f"更新复权因子数据失败: {str(e)}",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdjustFactorPauseView(APIView):
+    """
+    暂停复权因子更新API视图
+    调用方式: POST /api/stocks/update/adjust_factor/pause
+    功能: 暂停复权因子更新任务
+    """
+
+    def post(self, request):
+        global adjust_factor_update_status
+        try:
+            with adjust_factor_status_lock:
+                adjust_factor_update_status["paused"] = True
+                adjust_factor_update_status["status"] = "paused"
+            logger.info("暂停复权因子更新")
+            return Response({
+                "success": True,
+                "message": "复权因子更新已暂停",
+                "paused": True
+            })
+        except Exception as e:
+            logger.error(f"暂停复权因子更新失败: {str(e)}")
+            return Response({
+                "success": False,
+                "message": f"暂停复权因子更新失败: {str(e)}",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdjustFactorResumeView(APIView):
+    """
+    恢复复权因子更新API视图
+    调用方式: POST /api/stocks/update/adjust_factor/resume
+    功能: 恢复复权因子更新任务
+    """
+
+    def post(self, request):
+        global adjust_factor_update_status
+        try:
+            with adjust_factor_status_lock:
+                adjust_factor_update_status["paused"] = False
+                if adjust_factor_update_status.get("running"):
+                    adjust_factor_update_status["status"] = "running"
+            logger.info("恢复复权因子更新")
+            return Response({
+                "success": True,
+                "message": "复权因子更新已恢复",
+                "paused": False
+            })
+        except Exception as e:
+            logger.error(f"恢复复权因子更新失败: {str(e)}")
+            return Response({
+                "success": False,
+                "message": f"恢复复权因子更新失败: {str(e)}",
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -169,27 +283,18 @@ class AdjustFactorStatusView(APIView):
     """
     
     def get(self, request):
-        conn = None
         try:
-            # 获取数据库连接
-            conn = get_conn()
-            
-            # 查询最近的复权因子更新记录
-            # 实际项目中应该根据具体情况实现
-            # 例如：从日志表或状态表中查询
-            
-            # 这里模拟返回一些状态信息
-            status_data = {
-                "last_update_time": datetime.now().isoformat(),
-                "total_count": 10000,
-                "updated_count": 8500,
-                "status": "completed",
-                "message": "复权因子更新已完成"
-            }
-            
             return Response({
                 "success": True,
-                "data": status_data
+                "data": {
+                    "running": adjust_factor_update_status["running"],
+                    "paused": adjust_factor_update_status["paused"],
+                    "total_count": adjust_factor_update_status["total_count"],
+                    "updated_count": adjust_factor_update_status["updated_count"],
+                    "status": adjust_factor_update_status["status"],
+                    "last_update_time": adjust_factor_update_status["last_update_time"],
+                    "current_code": adjust_factor_update_status["current_code"]
+                }
             })
             
         except Exception as e:
@@ -200,7 +305,3 @@ class AdjustFactorStatusView(APIView):
                 "message": f"获取复权因子更新状态失败: {str(e)}",
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        finally:
-            # 归还数据库连接
-            if conn:
-                put_conn(conn)

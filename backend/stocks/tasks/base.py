@@ -69,7 +69,7 @@ class BaseTask(ABC):
                 int(self.priority or 0),
                 "待处理",
             )
-            logger.info("生成任务: %s (%s)", self.task_id, self.task_type)
+            logger.debug("生成任务: %s (%s)", self.task_id, self.task_type)
             return self.task_id
         except Exception as e:
             logger.exception("生成任务失败: %s", e)

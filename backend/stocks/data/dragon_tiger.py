@@ -17,24 +17,22 @@ def _query_dragon_tiger(ingest_date: str = None, query_type: str = None):
         return {'error': f'连接池错误: {str(e)}'}
     
     try:
-        cur = conn.cursor()
-        # 构建SQL查询，明确指定列名以匹配数据库表结构
+        # ClickHouse客户端直接使用execute方法，不需要cursor
         sql = """
-        select  code, name, buy_amount, buy_times, 
+        SELECT code, name, buy_amount, buy_times, 
                sell_amount, sell_times, net_amount, query_type 
-        from inst_trading_tracker 
-        where ingest_date in %s
+        FROM inst_trading_tracker 
+        WHERE ingest_date = %s
         """
         params = [ingest_date]
         
         if query_type:
-            sql += " and query_type = %s"
+            sql += " AND query_type = %s"
             params.append(query_type)
         
-        cur.execute(sql, params)
+        rows = conn.execute(sql, params) or []
         
         # 直接返回数值列表，不包含字段名
-        rows = cur.fetchall() or []
         items = []
         for row in rows:
             # 将元组转换为列表，只返回数值

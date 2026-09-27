@@ -2,6 +2,7 @@ import json
 import logging
 import threading
 import os
+import time
 import pandas as pd
 from typing import Any, Dict, List, Optional
 from datetime import datetime
@@ -25,13 +26,37 @@ def _insert_daily_thread(code, df, conn=None, result_dict=None):
                 result_dict['total_saved'] += saved_count
                 if saved_count > 0:
                     result_dict['success_codes'].append(code)
+                else:
+                    result_dict.setdefault('zero_saved_codes', []).append(code)
+        if saved_count > 0:
+            logger.debug("[下载任务] code=%s 数据库写入完成 saved_rows=%d", code, saved_count)
+        else:
+            logger.debug("[下载任务] code=%s 数据库写入结果为0行", code)
         return saved_count
     except Exception as e:
-        logger.exception("线程数据保存失败: code=%s, error=%s", code, e)
+        logger.error("线程数据保存失败: code=%s, error=%s", code, e)
         if result_dict is not None:
             with result_dict.get('lock', threading.Lock()):
                 result_dict['failed_codes'].append((code, str(e)))
         return 0
+
+def _stored_float(value):
+    """Non-nullable Float64 columns reject None and NaN."""
+    number = _num(value)
+    if number is None or number != number or number in (float("inf"), float("-inf")):
+        return 0.0
+    return number
+
+
+def _stored_int(value):
+    number = _int(value)
+    if number is None:
+        number = _num(value)
+        if number is None or number != number:
+            return 0
+        return int(number)
+    return number
+
 
 def _insert_daily(code, df, conn=None):
     if df is None or getattr(df, 'empty', True):
@@ -64,27 +89,28 @@ def _insert_daily(code, df, conn=None):
             values.append((
                 code,
                 date,
-                _num(r.get('open')),
-                _num(r.get('close')),
-                _num(r.get('high')),
-                _num(r.get('low')),
-                _int(r.get('volume')),
-                _num(r.get('amount')),
-                _num(r.get('turnover')),
-                _num(r.get('outstanding_share')),
+                _stored_float(r.get('open')),
+                _stored_float(r.get('close')),
+                _stored_float(r.get('high')),
+                _stored_float(r.get('low')),
+                _stored_int(r.get('volume')),
+                _stored_float(r.get('amount')),
+                _stored_float(r.get('turnover')),
+                _stored_float(r.get('outstanding_share')),
             ))
         if values:
             try:
-                # 直接使用conn.execute()，ClickHouse客户端支持execute方法
+                # clickhouse-driver 用原生数据块写入；SQL 里的 %s 会被服务器原样解析并失败。
                 conn_local.execute(
                     """
-                    insert into stock_daily (
+                    INSERT INTO stock_daily (
                       code, date, open, close, high, low, volume, amount, turnover, outstanding_share
-                    ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ) VALUES
                     """,
-                    values
+                    values,
                 )
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).error("写入 stock_daily 失败 code=%s error=%s", code, exc)
                 return 0
         if conn is None:
             try:
@@ -112,6 +138,28 @@ def _insert_daily(code, df, conn=None):
 fetcher = AkshareFetcher()
 
 logger = logging.getLogger(__name__)
+
+
+def _short_code_list(codes: List[str], limit: int = 5) -> str:
+    if not codes:
+        return "-"
+    if len(codes) <= limit:
+        return ",".join(codes)
+    return f"{','.join(codes[:limit])} ... 共{len(codes)}只"
+
+
+def _format_failed_codes(failed_codes: List[Any], limit: int = 5) -> str:
+    if not failed_codes:
+        return "-"
+    preview = []
+    for item in failed_codes[:limit]:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            preview.append(f"{item[0]}:{item[1]}")
+        else:
+            preview.append(str(item))
+    if len(failed_codes) > limit:
+        preview.append(f"... 其余{len(failed_codes) - limit}项")
+    return " | ".join(preview)
 
 
 class DownloadDailyTask(BaseTask):
@@ -148,6 +196,7 @@ class DownloadDailyTask(BaseTask):
     def taskID(cls) -> str:
         return "Download_Full_Daily"
     def run(self, conn=None,params_str: str = None) -> bool:
+        started_at = time.perf_counter()
         # 检查依赖
         if params_str:
             self.params_str = params_str
@@ -170,18 +219,25 @@ class DownloadDailyTask(BaseTask):
         # 去重
         codes = list(dict.fromkeys(codes))
         if not codes:
-            logger.warning("未提供有效的股票代码（params 需包含 'code' 或 'codes'）")
+            logger.warning("[下载任务] task_id=%s 未提供有效的股票代码（params 需包含 'code' 或 'codes'）", self.task_id or "-")
             return False
         
         # 检查是否保存到CSV文件
         to_csv = FileConfig.get("to_csv", False)
-        logger.info(f"任务配置：保存到CSV文件 = {to_csv}")
+        save_type = "CSV文件" if to_csv else "数据库"
+        task_prefix = (
+            f"[下载任务] task_id={self.task_id or '-'} type={self.task_type or self.taskID()} "
+            f"codes={len(codes)} sample={_short_code_list(codes)} "
+            f"range={start_date}~{end_date} market={market or '-'} save_to={save_type}"
+        )
+        summary_log = logger.info if len(codes) > 1 else logger.debug
+        summary_log("%s 开始执行", task_prefix)
         
         # 如果不保存到CSV文件，则检查数据库连接
         if not to_csv:
             conn_local = conn 
             if not conn_local:
-                logger.error("QuestDB 连接失败")
+                logger.error("%s 数据库连接失败", task_prefix)
                 return False
         
         try:
@@ -190,6 +246,9 @@ class DownloadDailyTask(BaseTask):
                 'total_saved': 0,
                 'success_codes': [],
                 'failed_codes': [],
+                'fetched_rows': 0,
+                'no_data_count': 0,
+                'zero_saved_codes': [],
                 'lock': threading.Lock()
             }
             
@@ -197,26 +256,40 @@ class DownloadDailyTask(BaseTask):
                 # 保存到CSV：不使用线程，直接保存
                 for code in codes:
                     try:
+                        logger.debug("%s code=%s 开始抓取", task_prefix, code)
                         # 只获取不复权的数据
                         df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date)
                         if df is not None and not df.empty:
-                            
+                            result_dict['fetched_rows'] += len(df)
                             saved_count = save_to_csv(code, df)
                             result_dict['total_saved'] += saved_count
                             
                             if saved_count > 0:
                                 result_dict['success_codes'].append(code)
-                                logger.info(f"成功保存股票 {code} 的不复权数据，共 {len(df)} 行")
+                                logger.debug("%s code=%s 抓取完成并已保存到CSV fetched_rows=%d saved_rows=%d", task_prefix, code, len(df), saved_count)
+                            else:
+                                result_dict['zero_saved_codes'].append(code)
+                                logger.debug("%s code=%s 已抓取到数据但保存结果为0行 fetched_rows=%d", task_prefix, code, len(df))
+                        else:
+                            result_dict['no_data_count'] += 1
+                            logger.debug("%s code=%s 未抓取到数据", task_prefix, code)
                     except Exception as e:
-                        logger.exception("数据获取或保存失败: code=%s, error=%s", code, e)
+                        logger.error("%s code=%s 数据获取或保存失败: %s", task_prefix, code, e)
                         result_dict['failed_codes'].append((code, str(e)))
             else:
                 # 保存到数据库：继续使用线程
                 threads = []
                 for code in codes:
                     try:
+                        logger.debug("%s code=%s 开始抓取", task_prefix, code)
                         # 先获取数据
                         df = fetcher.fetch_stock_daily(code=code, start_date=start_date, end_date=end_date)
+                        if df is None or df.empty:
+                            result_dict['no_data_count'] += 1
+                            logger.debug("%s code=%s 未抓取到数据", task_prefix, code)
+                            continue
+                        result_dict['fetched_rows'] += len(df)
+                        logger.debug("%s code=%s 抓取完成 fetched_rows=%d，准备写入数据库", task_prefix, code, len(df))
                         
                         # 创建并启动线程来保存数据到数据库
                         t = threading.Thread(
@@ -227,7 +300,7 @@ class DownloadDailyTask(BaseTask):
                         threads.append(t)
                         t.start()
                     except Exception as e:
-                        logger.exception("数据获取失败: code=%s, error=%s", code, e)
+                        logger.error("%s code=%s 数据获取失败: %s", task_prefix, code, e)
                         with result_dict['lock']:
                             result_dict['failed_codes'].append((code, f"获取数据失败: {str(e)}"))
                 
@@ -239,15 +312,31 @@ class DownloadDailyTask(BaseTask):
             total_saved = result_dict['total_saved']
             success_count = len(result_dict['success_codes'])
             failed_count = len(result_dict['failed_codes'])
+            zero_saved_count = len(result_dict['zero_saved_codes'])
+            elapsed = time.perf_counter() - started_at
+            summary_log(
+                "%s 执行完成 fetched_rows=%d saved_rows=%d success_codes=%d no_data=%d zero_saved=%d failed_codes=%d elapsed=%.2fs",
+                task_prefix,
+                result_dict['fetched_rows'],
+                total_saved,
+                success_count,
+                result_dict['no_data_count'],
+                zero_saved_count,
+                failed_count,
+                elapsed,
+            )
             
-            save_type = "CSV文件" if to_csv else "数据库"
-            logger.info("任务完成：codes=%s, 保存到=%s, total_saved=%s, success_codes=%d, failed_codes=%d", 
-                      codes, save_type, total_saved, success_count, failed_count)
-            
+            if zero_saved_count > 0:
+                logger.warning("%s 保存0行摘要: %s", task_prefix, _short_code_list(result_dict['zero_saved_codes']))
+
             if failed_count > 0:
-                logger.warning("部分代码保存失败: %s", result_dict['failed_codes'])
+                logger.warning("%s 失败摘要: %s", task_prefix, _format_failed_codes(result_dict['failed_codes']))
             
             return total_saved > 0
+        except Exception as e:
+            elapsed = time.perf_counter() - started_at
+            logger.error("%s 执行异常 elapsed=%.2fs error=%s", task_prefix, elapsed, e)
+            return False
         finally:
             # 只有在保存到数据库时才需要关闭连接
             if not to_csv and conn is None:
@@ -259,5 +348,3 @@ class DownloadDailyTask(BaseTask):
                         conn_local.close()
                 except Exception:
                     pass
-
-

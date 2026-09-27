@@ -91,6 +91,11 @@ class FinancialDataUpdateView(APIView):
                 """
                 global financial_update_status
                 try:
+                    # 检查是否暂停，如果暂停则等待恢复
+                    import time
+                    while financial_update_status.get("paused") and financial_update_status.get("running"):
+                        time.sleep(0.5)
+                    
                     # 更新当前处理的股票代码
                     financial_update_status["current_code"] = code
                     
@@ -253,8 +258,11 @@ class FinancialDataPauseView(APIView):
     """
     
     def post(self, request):
+        global financial_update_status
         try:
             # 这里模拟暂停逻辑
+            financial_update_status["paused"] = True
+            financial_update_status["status"] = "paused"
             logger.info("暂停金融数据更新")
             return Response({
                 "success": True,
@@ -279,8 +287,12 @@ class FinancialDataResumeView(APIView):
     """
     
     def post(self, request):
+        global financial_update_status
         try:
             # 这里模拟恢复逻辑
+            financial_update_status["paused"] = False
+            if financial_update_status.get("running"):
+                financial_update_status["status"] = "running"
             logger.info("恢复金融数据更新")
             return Response({
                 "success": True,

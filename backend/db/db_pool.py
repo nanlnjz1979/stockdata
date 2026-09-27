@@ -105,8 +105,8 @@ class DatabaseConnectionPool:
         
         # 检查ClickHouse连接是否有效
         try:
-            # ClickHouse客户端对象直接支持execute方法
-            result = conn.execute("SELECT 1")
+            # 加 max_execution_time=2 防止健康检查卡死连接池锁
+            result = conn.execute("SELECT 1", settings={'max_execution_time': 2})
             return len(result) > 0
         except Exception as e:
             logger.debug(f"连接无效: {e}")
@@ -210,8 +210,8 @@ class DatabaseConnectionPool:
         with self.lock:
             if conn:
                 try:
-                    # 检查ClickHouse连接是否仍然有效
-                    result = conn.execute("SELECT 1")
+                    # 检查ClickHouse连接是否仍然有效（加超时防止卡死锁）
+                    result = conn.execute("SELECT 1", settings={'max_execution_time': 2})
                     is_valid = len(result) > 0
                     
                     if is_valid:

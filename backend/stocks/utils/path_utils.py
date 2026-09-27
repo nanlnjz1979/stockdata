@@ -6,7 +6,7 @@ import os
 from django.conf import settings
 
 
-def normalize_path(path: str) -> str:
+def normalize_path(path) -> str:
     """
     统一路径格式，跨平台兼容
     
@@ -15,7 +15,7 @@ def normalize_path(path: str) -> str:
     规范化路径
     
     Args:
-        path: 输入路径字符串
+        path: 输入路径字符串或Path对象
         
     Returns:
         规范化后的路径字符串
@@ -23,14 +23,20 @@ def normalize_path(path: str) -> str:
     if not path:
         return path
     
-    # 1. 统一所有反斜杠为正斜杠
+    # 1. 转换为字符串
+    if hasattr(path, '__fspath__'):  # 处理Path对象
+        path = str(path)
+    else:
+        path = str(path)
+    
+    # 2. 统一所有反斜杠为正斜杠
     path = path.replace('\\', '/')
     
-    # 2. 使用os.path.normpath进行规范化
+    # 3. 使用os.path.normpath进行规范化
     # 这会处理 . 和 .. 等相对路径
     normalized = os.path.normpath(path)
     
-    # 3. 再次确保使用正斜杠（在Windows上os.path.normpath会返回反斜杠）
+    # 4. 再次确保使用正斜杠（在Windows上os.path.normpath会返回反斜杠）
     normalized = normalized.replace('\\', '/')
     
     return normalized

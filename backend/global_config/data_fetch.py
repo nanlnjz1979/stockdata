@@ -6,6 +6,9 @@
 """
 
 import logging
+import random
+import re
+import threading
 import time
 from datetime import datetime
 from typing import Dict, List,  Optional, Union, Any
@@ -13,11 +16,65 @@ import pandas as pd
 from backend.global_config.utils import make_symbol
 import akshare as ak
 logger = logging.getLogger(__name__)
+_REQUESTS_TIMEOUT_PATCH_LOCK = threading.Lock()
+_SOURCE_LOG_NAMES = {
+    "stock_zh_a_daily": "daily",
+    "stock_zh_a_hist": "hist",
+}
+_SOURCE_FIRST_WEIGHTS = {
+    "stock_zh_a_daily": 8,
+    "stock_zh_a_hist": 2,
+}
 
 
 class DataFetchError(Exception):
     """数据抓取异常类"""
     pass
+
+
+def format_fetch_error(exc: Exception, max_length: int = 240) -> str:
+    """把第三方请求异常压缩成适合业务日志的一行摘要。"""
+    text = str(exc or "").strip()
+    if " error=" in text:
+        text = text.rsplit(" error=", 1)[-1].strip()
+    for prefix in ("数据抓取失败: ", "获取股票"):
+        if prefix != "获取股票" and text.startswith(prefix):
+            text = text[len(prefix):].strip()
+
+    if "ProxyError" in text:
+        host_match = re.search(r"host='([^']+)'", text)
+        host = host_match.group(1) if host_match else "远端接口"
+        reason = "代理连接失败"
+        if "Cannot connect to proxy" in text:
+            reason += ": Cannot connect to proxy"
+        if "Remote end closed connection without response" in text:
+            reason += "，远端无响应"
+        return f"{host} {reason}"
+
+    if "No value to decode" in text:
+        return "接口返回空内容或非JSON: No value to decode"
+
+    text = re.sub(r"(https?://[^?\s)]+)\?[^\s)]+", r"\1?...", text)
+    text = re.sub(r"(url: /[^?\s)]+)\?[^\s)]+", r"\1?...", text)
+    text = re.sub(r"\s+", " ", text)
+    if len(text) > max_length:
+        return text[:max_length - 3] + "..."
+    return text
+
+
+def format_source_name(source_name: str) -> str:
+    return _SOURCE_LOG_NAMES.get(source_name, source_name)
+
+
+def weighted_source_order(sources):
+    """Build a weighted random order so slow sources are less likely to be first."""
+    remaining = list(sources)
+    ordered = []
+    while remaining:
+        weights = [_SOURCE_FIRST_WEIGHTS.get(source_name, 1) for source_name, _, _ in remaining]
+        selected = random.choices(range(len(remaining)), weights=weights, k=1)[0]
+        ordered.append(remaining.pop(selected))
+    return ordered
 
 
 class DataFetcher:
@@ -34,7 +91,7 @@ class DataFetcher:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
     
-    def _retry_wrapper(self, func, *args, **kwargs):
+    def _retry_wrapper(self, func, *args, _retry_context: str = "", _log_final: bool = True, **kwargs):
         """
         重试包装器，处理接口调用的重试逻辑
         
@@ -60,12 +117,23 @@ class DataFetcher:
                 last_exception = e
                 retries += 1
                 if retries <= self.max_retries:
-                    logger.warning(f"调用失败，{retries}/{self.max_retries}次重试中: {str(e)}")
+                    logger.debug(
+                        "%s调用失败，%d/%d次重试: %s",
+                        f"{_retry_context} " if _retry_context else "",
+                        retries,
+                        self.max_retries,
+                        format_fetch_error(e, max_length=180),
+                    )
                     time.sleep(self.retry_delay)
                 else:
-                    logger.error(f"达到最大重试次数，调用失败: {str(e)}")
+                    if _log_final:
+                        logger.warning(
+                            "%s达到最大重试次数: %s",
+                            f"{_retry_context} " if _retry_context else "",
+                            format_fetch_error(e),
+                        )
         
-        raise DataFetchError(f"数据抓取失败: {str(last_exception)}")
+        raise DataFetchError(f"数据抓取失败: {format_fetch_error(last_exception)}")
 
 
 class AkshareFetcher(DataFetcher):
@@ -91,7 +159,7 @@ class AkshareFetcher(DataFetcher):
             try:
                 import akshare as ak
                 self.ak = ak
-                logger.info("成功导入akshare库")
+                logger.debug("成功导入akshare库")
             except ImportError:
                 logger.error("无法导入akshare库")
                 self.ak = None
@@ -104,7 +172,29 @@ class AkshareFetcher(DataFetcher):
             bool: 数据源是否可用
         """
         return self.ak is not None
-    
+
+    def _call_with_requests_timeout(self, func, timeout: float = 12, **kwargs):
+        """
+        部分 akshare 接口没有暴露 timeout 参数；这里只在本次调用期间
+        给该函数模块内的 requests.get 加默认 timeout，避免队列线程长时间卡死。
+        """
+        requests_module = getattr(func, "__globals__", {}).get("requests")
+        if requests_module is None or not hasattr(requests_module, "get"):
+            return func(**kwargs)
+
+        original_get = requests_module.get
+
+        def get_with_timeout(*args, **request_kwargs):
+            request_kwargs.setdefault("timeout", timeout)
+            return original_get(*args, **request_kwargs)
+
+        with _REQUESTS_TIMEOUT_PATCH_LOCK:
+            requests_module.get = get_with_timeout
+            try:
+                return func(**kwargs)
+            finally:
+                requests_module.get = original_get
+
     def get_all_indices(self) -> List[Dict[str, Any]]:
         """
         获取所有指数列表
@@ -116,70 +206,71 @@ class AkshareFetcher(DataFetcher):
             logger.error("akshare不可用，无法获取指数列表")
             return []
         
-        try:
-            logger.info("开始获取所有指数列表")
-            
-            # 调用akshare的index_stock_info函数获取所有指数信息
-            df = self._retry_wrapper(self.ak.index_stock_info)
-            
-            if df is None:
-                logger.warning("获取指数数据返回None")
+        def parse_indices(dataframe):
+            if dataframe is None or dataframe.empty:
                 return []
-            
-            logger.info(f"获取到指数数据，数据类型: {type(df)}")
-            logger.info(f"数据形状: {df.shape}")
-            logger.info(f"列名: {list(df.columns)}")
-            
-            if df.empty:
-                logger.warning("获取到的指数数据为空")
-                return []
-            
-            # 打印前几行数据，便于调试
-            logger.info(f"数据前5行:\n{df.head()}")
-            
-            # 处理获取到的数据
+
             indices = []
-            for _, r in df.iterrows():
-                # 尝试从不同的列名中获取指数代码和名称
+            seen_codes = set()
+            for _, row in dataframe.iterrows():
                 code = None
                 name = None
-                
-                # 打印每一行的所有列和值，便于调试
-                logger.debug(f"行数据: {r.to_dict()}")
-                
-                # 获取指数代码
                 for key in ['代码', '证券代码', '指数代码', 'symbol', 'code', 'index_code']:
-                    if key in r:
-                        v = r[key]
-                        if v:
-                            code = str(v).strip()
-                            logger.debug(f"从列'{key}'获取到代码: {code}")
-                            break
-                
-                # 获取指数名称
-                for key in ['名称', '证券简称', '指数名称', 'name', 'index_name','display_name']:
-                    if key in r:
-                        v = r[key]
-                        if v:
-                            name = str(v).strip()
-                            logger.debug(f"从列'{key}'获取到名称: {name}")
-                            break
-                
-                if code:
-                    indices.append({
-                        'code': code,
-                        'name': name or code
-                    })
-                else:
-                    logger.warning(f"无法从行数据中获取指数代码: {r.to_dict()}")
-            
-            logger.info(f"成功获取所有指数列表，共{len(indices)}个指数")
+                    if key in row and pd.notna(row[key]) and str(row[key]).strip():
+                        code = str(row[key]).strip()
+                        break
+                for key in ['名称', '证券简称', '指数名称', 'name', 'index_name', 'display_name']:
+                    if key in row and pd.notna(row[key]) and str(row[key]).strip():
+                        name = str(row[key]).strip()
+                        break
+                if code and code not in seen_codes:
+                    seen_codes.add(code)
+                    indices.append({'code': code, 'name': name or code})
             return indices
-            
+
+        try:
+            logger.info("开始获取所有指数列表")
+            try:
+                # 聚宽接口目前偶发返回无表格页面，优先保留原始来源。
+                df = self._retry_wrapper(self.ak.index_stock_info)
+                indices = parse_indices(df)
+                if indices:
+                    logger.info("成功获取所有指数列表，共%d个指数", len(indices))
+                    return indices
+            except Exception as primary_error:
+                logger.warning("聚宽指数列表接口不可用，准备切换东方财富来源: %s", format_fetch_error(primary_error))
+
+            # 备用来源不依赖 HTML 表格，按指数分类合并并去重。
+            fallback_indices = []
+            fallback_symbols = ['沪深重要指数', '中证系列指数', '上证系列指数', '深证系列指数']
+            for symbol in fallback_symbols:
+                try:
+                    fallback_df = self._retry_wrapper(
+                        lambda **kwargs: self._call_with_requests_timeout(
+                            self.ak.stock_zh_index_spot_em,
+                            timeout=12,
+                            **kwargs,
+                        ),
+                        symbol=symbol,
+                        _retry_context=f"东方财富指数列表 {symbol}",
+                    )
+                    fallback_indices.extend(parse_indices(fallback_df))
+                except Exception as fallback_error:
+                    logger.warning("东方财富指数列表分类%s获取失败: %s", symbol, format_fetch_error(fallback_error))
+
+            unique_indices = []
+            seen_codes = set()
+            for index_info in fallback_indices:
+                if index_info['code'] not in seen_codes:
+                    seen_codes.add(index_info['code'])
+                    unique_indices.append(index_info)
+
+            if unique_indices:
+                logger.info("通过东方财富备用来源获取指数列表，共%d个指数", len(unique_indices))
+                return unique_indices
+            raise DataFetchError("指数列表接口均不可用")
         except Exception as e:
-            logger.error(f"获取所有指数列表失败: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"获取所有指数列表失败: {format_fetch_error(e)}")
             return []
     
     def fetch_index_stock_cons(self, symbol: str = "000300") -> List[Dict[str, Any]]:
@@ -348,7 +439,7 @@ class AkshareFetcher(DataFetcher):
             logger.error(f"获取股票基础信息时发生错误: {str(e)}")
             return []
      
-    def fetch_stock_daily(self, code: str, start_date: str, end_date: str, adjust: str = "") -> pd.DataFrame:
+    def fetch_stock_daily(self, code: str, start_date: str, end_date: str, adjust: str = "", source: str = None) -> pd.DataFrame:
         """
         获取股票日K线数据
         
@@ -368,43 +459,120 @@ class AkshareFetcher(DataFetcher):
             raise DataFetchError("akshare不可用")
         
         try:
-            # 首先尝试调用 stock_zh_a_daily
-            try:
-                logger.debug(f"尝试使用 stock_zh_a_daily 获取股票{code}数据")
-                
-                df = self._retry_wrapper(
-                    self.ak.stock_zh_a_daily,
-                    symbol=make_symbol(code),
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust=adjust
-                )
-                """
-                df = ak.stock_zh_a_daily(
-                    symbol=make_symbol(code),
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust=adjust
-                )
-                """
-                logger.info(f"成功使用 stock_zh_a_daily 获取股票{code}的日K线数据，时间范围：{start_date}至{end_date}")
-                return df
-            except Exception as daily_error:
-                logger.warning(f"使用 stock_zh_a_daily 获取股票{code}数据失败，尝试降级到 stock_zh_a_hist: {str(daily_error)}")
-                
-                # 降级调用 stock_zh_a_hist
-                df = self._retry_wrapper(
+            sources = [
+                (
+                    "stock_zh_a_daily",
+                    lambda **kwargs: self._call_with_requests_timeout(
+                        self.ak.stock_zh_a_daily,
+                        timeout=12,
+                        **kwargs,
+                    ),
+                    {
+                        "symbol": make_symbol(code),
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "adjust": adjust,
+                    },
+                ),
+                (
+                    "stock_zh_a_hist",
                     self.ak.stock_zh_a_hist,
-                    symbol=code,
-                    period="daily",
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust=adjust
-                )
-                logger.info(f"成功使用 stock_zh_a_hist 获取股票{code}的日K线数据，时间范围：{start_date}至{end_date}")
-                return df
+                    {
+                        "symbol": code,
+                        "period": "daily",
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "adjust": adjust,
+                        "timeout": 12,
+                    },
+                ),
+            ]
+            if source:
+                sources = [item for item in sources if item[0] == source]
+                if not sources:
+                    raise DataFetchError(f"未知日线数据源: {source}")
+            else:
+                sources = weighted_source_order(sources)
+            source_order = [source_name for source_name, _, _ in sources]
+            source_order_log = ",".join(format_source_name(source_name) for source_name in source_order)
+            errors = []
+            fetch_started_at = datetime.now()
+            logger.debug(
+                "[日线] start=%s code=%s range=%s~%s adj=%s first=%s order=%s",
+                fetch_started_at.strftime("%Y-%m-%d %H:%M:%S"),
+                code,
+                start_date,
+                end_date,
+                adjust or "-",
+                format_source_name(source_order[0]),
+                source_order_log,
+            )
+
+            for source_name, source_func, source_kwargs in sources:
+                source_started_at = datetime.now()
+                try:
+                    logger.debug(
+                        "尝试使用 %s 获取股票%s数据，时间范围：%s至%s",
+                        source_name,
+                        code,
+                        start_date,
+                        end_date,
+                    )
+                    df = self._retry_wrapper(
+                        source_func,
+                        **source_kwargs,
+                        _retry_context=f"{source_name} code={code} range={start_date}~{end_date} adjust={adjust or '-'}",
+                        _log_final=False,
+                    )
+                    fetch_ended_at = datetime.now()
+                    elapsed = (fetch_ended_at - fetch_started_at).total_seconds()
+                    rows = 0 if df is None else len(df)
+                    logger.info(
+                        "[日线] code=%s range=%s~%s first=%s source=%s rows=%d start=%s end=%s cost=%.2fs status=成功",
+                        code,
+                        start_date,
+                        end_date,
+                        format_source_name(source_order[0]),
+                        format_source_name(source_name),
+                        rows,
+                        fetch_started_at.strftime("%H:%M:%S"),
+                        fetch_ended_at.strftime("%H:%M:%S"),
+                        elapsed,
+                    )
+                    self.last_daily_source = source_name
+                    return df
+                except Exception as source_error:
+                    source_ended_at = datetime.now()
+                    errors.append(f"{source_name}: {format_fetch_error(source_error)}")
+                    logger.debug(
+                        "%s 获取失败，尝试下一个数据源: code=%s range=%s~%s adjust=%s elapsed=%.2fs error=%s",
+                        source_name,
+                        code,
+                        start_date,
+                        end_date,
+                        adjust or '-',
+                        (source_ended_at - source_started_at).total_seconds(),
+                        format_fetch_error(source_error),
+                    )
+
+            raise DataFetchError("; ".join(errors))
         except Exception as e:
-            raise DataFetchError(f"获取股票{code}日K线数据失败: {str(e)}")
+            fetch_ended_at = datetime.now()
+            if 'fetch_started_at' in locals():
+                logger.warning(
+                    "[日线] code=%s range=%s~%s first=%s start=%s end=%s cost=%.2fs status=失败 error=%s",
+                    code,
+                    start_date,
+                    end_date,
+                    format_source_name(source_order[0]) if 'source_order' in locals() and source_order else "-",
+                    fetch_started_at.strftime("%H:%M:%S"),
+                    fetch_ended_at.strftime("%H:%M:%S"),
+                    (fetch_ended_at - fetch_started_at).total_seconds(),
+                    format_fetch_error(e),
+                )
+            raise DataFetchError(
+                f"获取日K线失败: code={code} range={start_date}~{end_date} adjust={adjust or '-'} error={format_fetch_error(e)}"
+            )
     
     def fetch_stock_adjust_factor(self, code: str, adjust: str = "qfq-factor") -> pd.DataFrame:
         """
@@ -501,30 +669,6 @@ class AkshareFetcher(DataFetcher):
             return df
         except Exception as e:
             raise DataFetchError(f"获取申万三级行业数据失败: {str(e)}")
-    
-    def fetch_sw_index_third_cons(self, symbol: Union[str, List[str]]) -> pd.DataFrame:
-        """
-        获取申万三级行业成分股
-        
-        Args:
-            symbol: 行业代码，可以是单个字符串或字符串列表，格式如"850111.SI"
-            
-        Returns:
-            pd.DataFrame: 行业成分股数据
-            
-        Raises:
-            DataFetchError: 数据抓取失败
-        """
-        if not self.is_available():
-            raise DataFetchError("akshare不可用")
-        
-        try:
-            logger.info(f"开始抓取申万三级行业成分股数据，行业代码: {symbol}")
-            df = self._retry_wrapper(self.ak.sw_index_third_cons, symbol=symbol)
-            logger.info(f"成功抓取申万三级行业成分股数据，共{len(df)}条")
-            return df
-        except Exception as e:
-            raise DataFetchError(f"获取申万三级行业成分股数据失败: {str(e)}")
     
     def fetch_sw_industry_data(self, industry_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -865,20 +1009,6 @@ def get_sw_industry_third_info(**kwargs) -> pd.DataFrame:
     fetcher = DataFetchFactory.get_fetcher(**kwargs)
     return fetcher.fetch_sw_industry_third_info()
 
-def get_sw_index_third_cons(symbol: Union[str, List[str]], **kwargs) -> pd.DataFrame:
-    """
-    获取申万三级行业成分股的便捷方法
-    
-    Args:
-        symbol: 行业代码，可以是单个字符串或字符串列表，格式如"850111.SI"
-        **kwargs: 传递给抓取器的参数
-        
-    Returns:
-        pd.DataFrame: 行业成分股数据
-    """
-    fetcher = DataFetchFactory.get_fetcher(**kwargs)
-    return fetcher.fetch_sw_index_third_cons(symbol)
-
 def get_sw_industry_data(industry_code: str, start_date: str, end_date: str, **kwargs) -> pd.DataFrame:
     """
     获取申万行业指标数据的便捷方法
@@ -908,7 +1038,6 @@ __all__ = [
     'get_sw_industry_first_info',
     'get_sw_industry_second_info',
     'get_sw_industry_third_info',
-    'get_sw_index_third_cons',
     'get_sw_industry_data',
     'is_trading_day'
 ]

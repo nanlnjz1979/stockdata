@@ -36,6 +36,33 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+stop_port_processes() {
+    local port="$1"
+    local service_name="$2"
+    local pids
+
+    if ! command_exists lsof; then
+        log_warning "lsof 命令不存在，无法按端口清理 $service_name"
+        return
+    fi
+
+    pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    if [ -z "$pids" ]; then
+        return
+    fi
+
+    log_warning "$service_name 端口 $port 仍被占用，准备关闭进程: $(echo "$pids" | tr '\n' ' ')"
+    echo "$pids" | xargs kill 2>/dev/null
+
+    sleep 1
+
+    pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    if [ -n "$pids" ]; then
+        log_warning "$service_name 端口 $port 进程未退出，强制关闭: $(echo "$pids" | tr '\n' ' ')"
+        echo "$pids" | xargs kill -9 2>/dev/null
+    fi
+}
+
 # 检查项目目录结构是否正确
 check_project_structure() {
     if [ ! -d "$BACKEND_DIR" ] || [ ! -d "$FRONTEND_DIR" ]; then
@@ -176,6 +203,9 @@ stop_services() {
     pkill -f "python manage.py runserver" 2>/dev/null
     pkill -f "python manage.py qcluster" 2>/dev/null
     pkill -f "python3 -m http.server" 2>/dev/null
+
+    stop_port_processes 8000 "后端服务"
+    stop_port_processes 5500 "前端服务"
     
     log_info "所有服务已停止"
 }

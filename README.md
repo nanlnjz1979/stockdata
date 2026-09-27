@@ -26,6 +26,15 @@ python -m http.server 5500
 ```
 访问：`http://localhost:5500/`
 
+## VS Code 启动
+
+打开 stockdata 项目后，在“运行和调试”面板选择：
+
+- `stockdata 后端（Django）`：启动 Django API `http://127.0.0.1:8000`
+- `stockdata 前端`：启动静态前端 `http://127.0.0.1:5500`
+
+配置文件位于 `.vscode/launch.json`，后端启动项使用 `backend/venv/bin/python3`。
+
 3) 数据采集示例运行
 ```
 cd d:\stockdata\data_pipeline

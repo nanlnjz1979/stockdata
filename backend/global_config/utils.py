@@ -220,6 +220,10 @@ def save_to_csv(code, df, file_name:str=None):
         # 添加股票代码列（如果不存在）
         if 'code' not in df.columns:
             df['code'] = code
+
+        # 统一补齐 outstanding_share 列，缺失时按 0 处理
+        if 'outstanding_share' not in df.columns:
+            df['outstanding_share'] = 0
         
         # 确保日期格式正确
         if 'date' in df.columns:
@@ -236,27 +240,19 @@ def save_to_csv(code, df, file_name:str=None):
         if 'volume' in df.columns:
             df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype('int64')
         
-        # 按照数据库列顺序调整DataFrame列顺序
-        # 数据库列顺序：code, date, open, close, high, low, volume, amount, turnover, outstanding_share
+        # outstanding_share 缺失或无法转换时统一补 0
+        df['outstanding_share'] = pd.to_numeric(df['outstanding_share'], errors='coerce').fillna(0)
+        
+        # 按统一标准字段输出，避免主备数据源列结构不一致
         db_columns = ['code', 'date', 'open', 'close', 'high', 'low', 'volume', 'amount', 'turnover', 'outstanding_share']
-        
-        # 只保留存在的列
-        available_columns = []
+
+        # 补齐缺失字段，保证最终CSV字段固定
         for col in db_columns:
-            if col in df.columns:
-                available_columns.append(col)
-        
-        # 添加其他可能存在的列
-        for col in df.columns:
-            if col not in available_columns:
-                available_columns.append(col)
-        
-        # 移除adjust_type列（如果存在）
-        if 'adjust_type' in df.columns:
-            df = df.drop(columns=['adjust_type'])
-        
-        # 调整列顺序
-        df = df[available_columns]
+            if col not in df.columns:
+                df[col] = 0 if col == 'outstanding_share' else ''
+
+        # 只保留标准字段，并按固定顺序输出
+        df = df[db_columns]
         
         # 构建文件名
         csv_file = join_path(csv_dir, f'{code}.csv')

@@ -41,6 +41,8 @@ class IndexComponentsUpdateView(APIView):
             # 获取所有指数列表
             fetcher = AkshareFetcher()
             all_indices = fetcher.get_all_indices()
+            if not all_indices:
+                raise DataFetchError("无法获取指数列表，请检查 AkShare 数据源或网络连接")
             
             # 使用所有指数，保留代码和名称信息
             indices_to_update = all_indices  # 直接使用包含代码和名称的指数列表
@@ -72,6 +74,11 @@ class IndexComponentsUpdateView(APIView):
                 index_name = index_info["name"]
                 
                 try:
+                    # 检查是否暂停，如果暂停则等待恢复
+                    import time
+                    while index_components_update_status.get("paused") and index_components_update_status.get("running"):
+                        time.sleep(0.5)
+                    
                     # 检查是否已经存在对应的CSV文件
                     csv_file_path = os.path.join(index_components_dir, f"{index_code}.csv")
                     if os.path.exists(csv_file_path):
@@ -223,6 +230,7 @@ class IndexComponentsPauseView(APIView):
             # 这里模拟暂停逻辑
             global index_components_update_status
             index_components_update_status["paused"] = True
+            index_components_update_status["status"] = "paused"
             logger.info("暂停指数成份更新")
             return Response({
                 "success": True,
@@ -251,6 +259,8 @@ class IndexComponentsResumeView(APIView):
             # 这里模拟恢复逻辑
             global index_components_update_status
             index_components_update_status["paused"] = False
+            if index_components_update_status.get("running"):
+                index_components_update_status["status"] = "running"
             logger.info("恢复指数成份更新")
             return Response({
                 "success": True,

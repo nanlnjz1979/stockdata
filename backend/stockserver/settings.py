@@ -100,3 +100,26 @@ Q_CLUSTER = {
     'catch_up': False,  # 修改为True，允许错过的任务执行
     'orm': 'default',
 }
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'suppress_polling_access_log': {
+            '()': 'stockserver.logging_filters.SuppressPollingAccessLog',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'filters': ['suppress_polling_access_log'],
+        },
+    },
+    'loggers': {
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

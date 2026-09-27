@@ -105,6 +105,391 @@
   .btn.outline:hover {
     background: #e6f7ff;
   }
+
+  .heatmap-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .heatmap-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 18px 20px;
+    border: 1px solid #dbe6ea;
+    border-radius: 14px;
+    background:
+      radial-gradient(circle at top right, rgba(25, 144, 255, 0.12), transparent 30%),
+      linear-gradient(135deg, #f7fbff 0%, #fdfefe 100%);
+  }
+
+  .heatmap-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #183b56;
+  }
+
+  .heatmap-caption {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #5b7083;
+  }
+
+  .heatmap-controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .heatmap-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.75);
+    color: #51697c;
+    font-size: 12px;
+    border: 1px solid rgba(24, 59, 86, 0.08);
+  }
+
+  .heatmap-insights {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .heatmap-kpi {
+    padding: 16px 18px;
+    border-radius: 14px;
+    border: 1px solid #e4ecef;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  .heatmap-kpi-label {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: #6b7f90;
+    letter-spacing: 0.02em;
+  }
+
+  .heatmap-kpi-value {
+    display: block;
+    font-size: 28px;
+    line-height: 1;
+    font-weight: 700;
+    color: #16324a;
+  }
+
+  .heatmap-kpi-subtext {
+    display: block;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #7a8d9c;
+    line-height: 1.5;
+  }
+
+  .heatmap-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .heatmap-panel {
+    border: 1px solid #e3eaee;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.05);
+  }
+
+  .heatmap-chart-panel {
+    padding: 18px;
+  }
+
+  .heatmap-panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .heatmap-panel-head h4,
+  .heatmap-side-section h4 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #17324a;
+  }
+
+  .heatmap-panel-head p,
+  .heatmap-side-section p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #6f8190;
+  }
+
+  .heatmap-pager {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .heatmap-pageinfo {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #f4f7f8;
+    color: #556878;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .heatmap-legend {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+
+  .heatmap-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: #f7fafb;
+    color: #5c7182;
+    font-size: 12px;
+    border: 1px solid #e7eef2;
+  }
+
+  .heatmap-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+  }
+
+  .heatmap-chart-frame {
+    position: relative;
+    height: 62vh;
+    min-height: 460px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #dce5ea;
+    background:
+      linear-gradient(180deg, rgba(244, 248, 249, 0.9) 0%, rgba(255, 255, 255, 0.98) 100%);
+  }
+
+	  .heatmap-chart {
+	    width: 100%;
+	    height: 100%;
+	    min-height: 460px;
+	    box-sizing: border-box;
+	  }
+
+	  .health-table-wrap {
+	    width: 100%;
+	    height: 100%;
+	    overflow: auto;
+	    padding: 8px;
+	    box-sizing: border-box;
+	  }
+
+	  .health-table {
+	    width: 100%;
+	    border-collapse: separate;
+	    border-spacing: 0 8px;
+	    font-size: 13px;
+	  }
+
+	  .health-table th {
+	    padding: 0 12px 6px;
+	    color: #6c8192;
+	    font-weight: 600;
+	    text-align: left;
+	    white-space: nowrap;
+	  }
+
+	  .health-table td {
+	    padding: 12px;
+	    background: #f8fbfd;
+	    border-top: 1px solid #e5edf2;
+	    border-bottom: 1px solid #e5edf2;
+	    color: #244156;
+	  }
+
+	  .health-table td:first-child {
+	    border-left: 1px solid #e5edf2;
+	    border-radius: 12px 0 0 12px;
+	    font-weight: 700;
+	    color: #14314a;
+	  }
+
+	  .health-table td:last-child {
+	    border-right: 1px solid #e5edf2;
+	    border-radius: 0 12px 12px 0;
+	  }
+
+	  .health-status-pill {
+	    display: inline-flex;
+	    align-items: center;
+	    gap: 6px;
+	    padding: 4px 9px;
+	    border-radius: 999px;
+	    font-weight: 700;
+	    font-size: 12px;
+	    white-space: nowrap;
+	  }
+
+	  .health-status-pill::before {
+	    content: '';
+	    width: 7px;
+	    height: 7px;
+	    border-radius: 999px;
+	    background: currentColor;
+	  }
+
+	  .health-status-fresh { color: #2f9e44; background: #edf9f1; }
+	  .health-status-good { color: #2f9e7d; background: #eefaf5; }
+	  .health-status-recent { color: #b78300; background: #fff7df; }
+	  .health-status-stale { color: #c96b20; background: #fff1e7; }
+	  .health-status-lagged { color: #cf4f36; background: #fff0ec; }
+
+  .heatmap-side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .heatmap-side-section {
+    padding: 16px;
+    border-radius: 14px;
+    background: #f8fbfc;
+    border: 1px solid #e4edf1;
+  }
+
+  .heatmap-stat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .heatmap-stat-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .heatmap-stat-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: #42596b;
+  }
+
+  .heatmap-stat-value {
+    font-weight: 600;
+    color: #17324a;
+  }
+
+  .heatmap-progress {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #eaf0f3;
+  }
+
+  .heatmap-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+  }
+
+  .heatmap-narrative {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #fff;
+    color: #506676;
+    font-size: 13px;
+    line-height: 1.7;
+    border: 1px solid #e2eaee;
+  }
+
+  .heatmap-guide {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .heatmap-guide-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    color: #54697a;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .heatmap-guide-bullet {
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 999px;
+    background: #1890ff;
+    flex: 0 0 auto;
+  }
+
+  @media (max-width: 1100px) {
+    .heatmap-insights {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .heatmap-main {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .heatmap-toolbar,
+    .heatmap-panel-head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .heatmap-controls,
+    .heatmap-pager {
+      justify-content: flex-start;
+    }
+
+    .heatmap-insights {
+      grid-template-columns: 1fr;
+    }
+
+    .heatmap-chart-frame {
+      min-height: 360px;
+      height: 52vh;
+    }
+  }
   
   /* 树形结构样式 */
   .sw-classification-tree {
@@ -283,6 +668,65 @@
     margin-top: 16px;
     min-height: 200px;
   }
+
+  .sw-classification-result-card {
+    border: 1px solid #e0e7ef;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+  }
+
+  .sw-classification-result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #f7fbff;
+    border-bottom: 1px solid #e0e7ef;
+  }
+
+  .sw-classification-result-header span {
+    display: block;
+    margin-top: 4px;
+    color: #66788a;
+    font-size: 13px;
+  }
+
+  .sw-classification-result-body.collapsed {
+    display: none;
+  }
+
+  .third-level-industries-hint {
+    margin: -4px 0 10px;
+    color: #66788a;
+    font-size: 13px;
+  }
+
+  .third-level-code-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    line-height: 1.5;
+  }
+
+  .third-level-code-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #eef6ff;
+    color: #1f5f99;
+    font-size: 12px;
+    border: 1px solid #d7e8fa;
+  }
+
+  @media (max-width: 720px) {
+    .sw-classification-result-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
   
   /* 节点样式 */
   .tree-node {
@@ -430,6 +874,7 @@
       <div class="topbar">
         <div class="title" id="pageTitle">行情</div>
         <div class="spacer"></div>
+        <button class="btn outline" id="memoryCleanBtn"><i class="ri-delete-bin-line"></i> 清理内存</button>
         <button class="btn outline" id="themeToggle"><i class="ri-moon-line"></i> 夜间</button>
         <button class="btn outline" id="exportBtn">导出</button>
       </div>
@@ -764,25 +1209,46 @@
         <section id="update" class="section">
           <div class="grid">
             <div class="card">
-              <h3>QuestDB 连接</h3>
-              <div class="status">参数与状态</div>
-              <ul>
-                <li>连接状态：<span id="updateQdb">-</span></li>
-                <li>参数：<span id="updateQdbParams">-</span></li>
-                <li>基础股票数量：<span id="updateBasicCount">-</span></li>
-
-              </ul>
+              <h3>数据库连接</h3>
+              <div class="status">后端数据库与连接池状态</div>
+              <div class="db-status-panel">
+                <div class="db-status-main">
+                  <div>
+                    <div class="db-status-label">连接状态</div>
+                    <div class="db-status-value" id="updateQdb">-</div>
+                  </div>
+                  <span class="db-status-pill" id="updateQdbParams">检测中</span>
+                </div>
+                <div class="db-metrics">
+                  <div class="db-metric">
+                    <span>基础股票</span>
+                    <strong id="updateBasicCount">-</strong>
+                  </div>
+                  <div class="db-metric">
+                    <span>可用连接</span>
+                    <strong id="poolAvailableConnections">-</strong>
+                  </div>
+                  <div class="db-metric">
+                    <span>当前连接</span>
+                    <strong id="poolTotalConnections">-</strong>
+                  </div>
+                  <div class="db-metric">
+                    <span>连接范围</span>
+                    <strong id="poolConnectionRange">-</strong>
+                  </div>
+                </div>
+              </div>
               
               <!-- 刷新模式控制 -->
               <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
                 <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #333;">刷新模式</h4>
                 <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
                   <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="radio" name="refreshMode" value="auto" checked style="cursor: pointer;">
+                    <input type="radio" name="refreshMode" value="auto" style="cursor: pointer;">
                     <span>自动刷新</span>
                   </label>
                   <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="radio" name="refreshMode" value="manual" style="cursor: pointer;">
+                    <input type="radio" name="refreshMode" value="manual" checked style="cursor: pointer;">
                     <span>手动刷新</span>
                   </label>
                 </div>
@@ -813,10 +1279,24 @@
               <h3>任务队列更新</h3>
               <div class="status">按队列执行任务</div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button class="btn" id="queueUpdateStart">任务更新</button>
+                <button class="btn" id="queueUpdateStart">启动</button>
                 <button class="btn outline" id="queueUpdateToggle" disabled>暂停</button>
+                <button class="btn outline danger" id="queueUpdateStop" disabled>结束</button>
               </div>
               <div id="queueUpdateStatus" class="status" style="margin-top:8px;">空闲</div>
+              <div id="queueUpdateSummary" class="queue-visual-summary" style="margin-top: 10px;">等待任务启动</div>
+              <div id="queueUpdateEstimate" class="queue-estimate" aria-live="polite">
+                <span><small>当前速度</small><strong id="queueUpdateSpeed">--</strong></span>
+                <span><small>预计剩余</small><strong id="queueUpdateEta">--</strong></span>
+                <span><small>预计完成</small><strong id="queueUpdateFinish">--</strong></span>
+              </div>
+              <div id="queueUpdateCurrentCodes" class="queue-current-codes"></div>
+              <div id="queueUpdateBlocks" class="queue-blocks" aria-label="任务下载进度小方块"></div>
+              <div class="queue-legend">
+                <span class="queue-legend-item"><i class="queue-block done"></i>已完成</span>
+                <span class="queue-legend-item"><i class="queue-block active"></i>下载中</span>
+                <span class="queue-legend-item"><i class="queue-block pending"></i>待处理</span>
+              </div>
             </div>
             <div class="card">
               <h3>复权因子更新</h3>
@@ -826,6 +1306,14 @@
                 <button class="btn outline" id="updateAdjustFactorToggle" disabled>暂停</button>
               </div>
               <div id="updateAdjustFactorStatus" class="status" style="margin-top:8px;">未触发</div>
+              <div id="adjustFactorSummary" class="queue-visual-summary" style="margin-top: 10px;">等待任务启动</div>
+              <div id="adjustFactorCurrentCodes" class="queue-current-codes"></div>
+              <div id="adjustFactorBlocks" class="queue-blocks" aria-label="复权因子更新进度小方块"></div>
+              <div class="queue-legend">
+                <span class="queue-legend-item"><i class="queue-block done"></i>已完成</span>
+                <span class="queue-legend-item"><i class="queue-block active"></i>处理中</span>
+                <span class="queue-legend-item"><i class="queue-block pending"></i>待处理</span>
+              </div>
             </div>
             <div class="card">
               <h3>金融数据更新</h3>
@@ -835,6 +1323,14 @@
                 <button class="btn outline" id="updateFinancialDataToggle" disabled>暂停</button>
               </div>
               <div id="updateFinancialDataStatus" class="status" style="margin-top:8px;">未触发</div>
+              <div id="financialDataSummary" class="queue-visual-summary" style="margin-top: 10px;">等待任务启动</div>
+              <div id="financialDataCurrentCodes" class="queue-current-codes"></div>
+              <div id="financialDataBlocks" class="queue-blocks" aria-label="金融数据更新进度小方块"></div>
+              <div class="queue-legend">
+                <span class="queue-legend-item"><i class="queue-block done"></i>已完成</span>
+                <span class="queue-legend-item"><i class="queue-block active"></i>处理中</span>
+                <span class="queue-legend-item"><i class="queue-block pending"></i>待处理</span>
+              </div>
             </div>
             <div class="card">
               <h3>更新指数成份</h3>
@@ -844,6 +1340,14 @@
                 <button class="btn outline" id="updateIndexComponentsToggle" disabled>暂停</button>
               </div>
               <div id="updateIndexComponentsStatus" class="status" style="margin-top:8px;">未触发</div>
+              <div id="indexComponentsSummary" class="queue-visual-summary" style="margin-top: 10px;">等待任务启动</div>
+              <div id="indexComponentsCurrentCodes" class="queue-current-codes"></div>
+              <div id="indexComponentsBlocks" class="queue-blocks" aria-label="指数成份更新进度小方块"></div>
+              <div class="queue-legend">
+                <span class="queue-legend-item"><i class="queue-block done"></i>已完成</span>
+                <span class="queue-legend-item"><i class="queue-block active"></i>处理中</span>
+                <span class="queue-legend-item"><i class="queue-block pending"></i>待处理</span>
+              </div>
             </div>
           </div>
         </section>
@@ -913,6 +1417,16 @@
 
         <!-- 计划任务 -->
         <section id="tasks" class="section">
+          <div class="card" style="margin-bottom:16px;">
+            <h3>任务总览</h3>
+            <div style="overflow-x:auto;">
+              <table class="table" id="taskSummaryTable">
+                <thead><tr id="taskSummaryHead"></tr></thead>
+                <tbody id="taskSummaryBody"></tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="card">
             <h3>过滤</h3>
             <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content: space-between; align-items: center;">
@@ -986,19 +1500,93 @@
             
             <!-- 热力图分析 -->
             <div class="tab-content active" id="heatmap">
-              <div class="status">股票数据更新状态热力图</div>
-              <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
-                <div style="display:flex; align-items:center; gap:4px;">
-                  <span>周期：</span>
-                  <select id="heatmapPeriod" class="input">
-                    <option value="7">最近7天</option>
-                    <option value="30">最近30天</option>
-                    <option value="90">最近90天</option>
-                  </select>
+              <div class="heatmap-shell">
+                <div class="heatmap-toolbar">
+                  <div>
+                    <h3 class="heatmap-title">股票数据更新健康看板</h3>
+                    <p class="heatmap-caption">按数据新鲜度排序，优先展示最需要处理的股票。先看待更新列表，再生成增量任务补齐缺口。</p>
+                    <div class="heatmap-note" id="heatmapUpdatedAt">
+                      <i class="ri-information-line"></i>
+                      15:00 前按上一交易日判断，15:00 后按当日判断
+                    </div>
+                  </div>
+                  <div class="heatmap-controls">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span>周期：</span>
+                      <select id="heatmapPeriod" class="input">
+                        <option value="7">最近7天</option>
+                        <option value="30" selected>最近30天</option>
+                        <option value="90">最近90天</option>
+                      </select>
+                    </div>
+                    <button id="generateIncrementalTasks" class="btn outline">生成增量更新任务</button>
+                    <button id="heatmapRefresh" class="btn">刷新</button>
+                  </div>
                 </div>
-                <button id="heatmapRefresh" class="btn">刷新</button>
+
+                <div id="heatmapSummaryCards" class="heatmap-insights">
+                  <div class="heatmap-kpi">
+                    <span class="heatmap-kpi-label">覆盖股票</span>
+                    <span class="heatmap-kpi-value">0</span>
+                    <span class="heatmap-kpi-subtext">等待数据加载</span>
+                  </div>
+                  <div class="heatmap-kpi">
+                    <span class="heatmap-kpi-label">及时更新</span>
+                    <span class="heatmap-kpi-value">0%</span>
+                    <span class="heatmap-kpi-subtext">今日与昨日更新占比</span>
+                  </div>
+                  <div class="heatmap-kpi">
+                    <span class="heatmap-kpi-label">待关注</span>
+                    <span class="heatmap-kpi-value">0</span>
+                    <span class="heatmap-kpi-subtext">需要更新与严重滞后</span>
+                  </div>
+                  <div class="heatmap-kpi">
+                    <span class="heatmap-kpi-label">当前页覆盖</span>
+                    <span class="heatmap-kpi-value">0 / 0</span>
+                    <span class="heatmap-kpi-subtext">便于快速定位区间</span>
+                  </div>
+                </div>
+
+                <div class="heatmap-main">
+                  <div class="heatmap-panel heatmap-chart-panel">
+                    <div class="heatmap-panel-head">
+                      <div>
+                        <h4>优先更新列表</h4>
+                        <p>按滞后程度排序，优先处理排在前面的股票。</p>
+                      </div>
+                      <div id="heatmapPagination" class="heatmap-pager">
+                        <button id="heatmapPrevPage" class="btn outline" disabled>上一页</button>
+                        <span id="heatmapPageInfo" class="heatmap-pageinfo">等待数据加载</span>
+                        <button id="heatmapNextPage" class="btn outline" disabled>下一页</button>
+                      </div>
+                    </div>
+
+                    <div class="heatmap-chart-frame">
+                      <div id="heatmapContainer" class="heatmap-chart"></div>
+                    </div>
+                  </div>
+
+                  <aside class="heatmap-panel heatmap-side-panel">
+                    <div class="heatmap-side-section">
+                      <h4>状态拆解</h4>
+                      <p>看分布比例，先判断整体健康度，再决定排查优先级。</p>
+                      <div id="heatmapStats" class="heatmap-stat-list"></div>
+                    </div>
+
+                    <div class="heatmap-side-section">
+                      <h4>快速解读</h4>
+                      <p>给你一段可直接用来判断现状的摘要。</p>
+                      <div id="heatmapNarrative" class="heatmap-narrative">等待数据加载后生成分析摘要。</div>
+                    </div>
+
+                    <div class="heatmap-side-section">
+                      <h4>市场分布</h4>
+                      <p>快速判断问题是否集中在某个市场。</p>
+                      <div id="heatmapMarketStats" class="heatmap-stat-list"></div>
+                    </div>
+                  </aside>
+                </div>
               </div>
-              <div id="heatmapContainer" style="height: 60vh; width: 100%; min-height: 400px; display: block; margin: 0; padding: 0; box-sizing: border-box;"></div>
             </div>
           </div>
         </section>
@@ -1071,6 +1659,7 @@
                   <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
                     <input id="backupFileName" type="text" class="input" style="width: 300px;" value="data\daily" placeholder="data\daily" />
                     <button id="restoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <button id="restoreAllBtn" class="btn outline"><i class="ri-database-2-line" style="margin-right: 6px;"></i>全量恢复</button>
                     <span id="restoreStatus" style="color: #666;">就绪</span>
                     <div style="display: flex; align-items: center; gap: 6px;">
                       <input type="checkbox" id="useCluster" name="useCluster" />
@@ -1099,6 +1688,7 @@
                   <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
                     <input id="swBackupFileName" type="text" class="input" style="width: 300px;" value="data\sw_index" placeholder="data\sw_index" />
                     <button id="swRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <button id="swRestoreAllBtn" class="btn outline"><i class="ri-database-2-line" style="margin-right: 6px;"></i>全量恢复</button>
                     <span id="swRestoreStatus" style="color: #666;">就绪</span>
                   </div>
                   <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
@@ -1123,6 +1713,7 @@
                   <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
                     <input id="adjustFactorBackupFileName" type="text" class="input" style="width: 300px;" value="data\adjust_factors" placeholder="data\adjust_factors" />
                     <button id="adjustFactorRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <button id="adjustFactorRestoreAllBtn" class="btn outline"><i class="ri-database-2-line" style="margin-right: 6px;"></i>全量恢复</button>
                     <span id="adjustFactorRestoreStatus" style="color: #666;">就绪</span>
                   </div>
                   <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
@@ -1147,6 +1738,7 @@
                   <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
                     <input id="financialBackupFileName" type="text" class="input" style="width: 300px;" value="data\financial_data" placeholder="data\financial_data" />
                     <button id="financialRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <button id="financialRestoreAllBtn" class="btn outline"><i class="ri-database-2-line" style="margin-right: 6px;"></i>全量恢复</button>
                     <span id="financialRestoreStatus" style="color: #666;">就绪</span>
                   </div>
                   <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
@@ -1171,6 +1763,7 @@
                   <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
                     <input id="indexComponentsFileName" type="text" class="input" style="width: 300px;" value="data\index_components" placeholder="data\index_components" />
                     <button id="indexComponentsRestoreBtn" class="btn"><i class="ri-refresh-line" style="margin-right: 6px;"></i>执行恢复</button>
+                    <button id="indexComponentsRestoreAllBtn" class="btn outline"><i class="ri-database-2-line" style="margin-right: 6px;"></i>全量恢复</button>
                     <span id="indexComponentsRestoreStatus" style="color: #666;">就绪</span>
                   </div>
                   <div class="warning-box" style="background-color: #fff7e6; border: 1px solid #faad14; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
@@ -1346,7 +1939,7 @@
     // 确保DOM完全加载后再执行app.js
     document.addEventListener('DOMContentLoaded', function() {
       var script = document.createElement('script');
-      script.src = 'app.js';
+      script.src = 'app.js?v=sw-industry-stocks2-20260708';
       document.body.appendChild(script);
     });
   </script>

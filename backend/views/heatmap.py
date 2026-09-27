@@ -49,22 +49,25 @@ class HeatmapDataView(APIView):
         result = []
         
         try:
+            # 从StockInfo获取股票代码到名称的映射
+            from global_config.stock_info import StockInfo
+            all_stocks = StockInfo.get_all_stocks()
+            code_to_name = {stock.get('code'): stock.get('name', '') for stock in all_stocks}
+            
             # 获取数据库连接
             conn = get_conn()
             
-            # 使用用户提供的SQL查询获取每个股票的最后更新时间
-            # 修改为使用date列，并适配ClickHouse语法
-            # ClickHouse不支持LATEST BY，使用子查询和order by limit来实现
-            # 先获取每个股票的最新记录，然后再限制总数量
-            # 直接将limit值插入到SQL字符串中，因为ClickHouse驱动可能不支持位置参数
+            # 直接查基表 stock_daily，只取 code 和 max(date)
+            # 加 WHERE date >= today() - 365 只扫最近12个月的分区（428个分区中只需3-4个）
+            # 用 last_date 别名避免 ClickHouse 把 max(date) AS date 与 WHERE 中的 date 混淆
             sql = f"""
-            SELECT code, date FROM (
-                SELECT code, date 
-                FROM stock_daily_v 
-                ORDER BY code, date DESC 
-                LIMIT 1 BY code
-            ) ORDER BY code
+            SELECT code, max(date) AS last_date
+            FROM stock_daily
+            WHERE date >= today() - 365
+            GROUP BY code
+            ORDER BY code
             LIMIT {limit}
+            SETTINGS max_execution_time = 30
             """
             
             # 执行查询 - ClickHouse客户端直接支持execute方法，不需要cursor
@@ -82,15 +85,13 @@ class HeatmapDataView(APIView):
                 days_diff = (today - last_update_date.date()).days
                 update_status = 1 - (days_diff / period) if days_diff <= period else 0
                 
-                # 不复权，因为我们已经移除了adjust_type列
+                # 使用StockInfo中的真实股票名称
+                stock_name = code_to_name.get(code, code)
                 type_name = '不复权'
-                
-                # 判断市场类型
-                market = '上海' if code.startswith('6') else '深圳'
                 
                 result.append({
                     'code': code,
-                    'name': f"{market}股票{code[-4:]}",  # 简单生成股票名称
+                    'name': stock_name,
                     'last_update': last_update_date.strftime('%Y-%m-%d'),
                     'update_status': round(update_status, 2),
                     'type': type_name,

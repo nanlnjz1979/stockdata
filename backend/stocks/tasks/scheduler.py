@@ -8,6 +8,7 @@ from django.utils import timezone
 from pathlib import Path
 from django.conf import settings
 import sys
+import logging
 from db.db_pool import get_conn, put_conn
 # 动态引入项目根外的模块（data_pipeline, global_config）
 project_root = Path(settings.BASE_DIR).parent
@@ -15,6 +16,8 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
 from backend.global_config import GlobalConfig
+
+logger = logging.getLogger(__name__)
 
 def _compute_next_run_for_daily(hhmmss: str) -> datetime:
     """根据 HH:MM:SS 计算下一次运行时间（本地时区）。"""
@@ -74,14 +77,14 @@ def run_config_job(config_id) -> bool:
     if isinstance(config_id, list) and len(config_id) == 1:
         config_id = config_id[0]
     config_id = str(config_id)
-    print(f'-------------------------{config_id}----------------------------')
+    logger.info("[调度任务] 开始 config_id=%s", config_id)
     import json
     try:
         # 避免循环依赖，按需导入具体任务实现
         from stocks.tasks import DownloadDailyTask, QtasksOrm, DTBInstTradingTrackerTask
         from db import get_mongo_conn, put_mongo_conn
     except Exception as e:
-        print(f"[Scheduler] Import tasks failed: {e}")
+        logger.exception("[调度任务] 导入任务失败 config_id=%s error=%s", config_id, e)
         return False
     conn = None
     mongo_conn = None
@@ -103,13 +106,14 @@ def run_config_job(config_id) -> bool:
         if config_id in tasks:
             task = tasks[config_id](orm)
             task.generate(task_type=config_id, task_desc=task_desc, params=params, conn=conn)
+            logger.info("[调度任务] 已生成任务 config_id=%s task_type=%s", config_id, config_id)
             return True
         else:
             # 未知配置ID：仅记录日志
-            print(f"[Scheduler] Unknown config_id: {config_id}; params={params}")
+            logger.warning("[调度任务] 未知配置 config_id=%s params=%s", config_id, params)
             return False
     except Exception as e:
-        print(f"[Scheduler] Job error for {config_id}: {e}")
+        logger.exception("[调度任务] 执行失败 config_id=%s error=%s", config_id, e)
         return False
     finally:
         try:
@@ -132,9 +136,11 @@ def build_schedules_from_global_config() -> int:
         gc = GlobalConfig(mongo_conn)
         cfgs = getattr(gc, '_schedule_configs', {}) or {}
         count = 0
+        disabled_count = 0
         for cfg_id, cfg in cfgs.items():
             enabled = cfg.get('enabled') in (1, '1', True, 'true', 't', 'yes', 'y')
             if not enabled:
+                disabled_count += 1
                 # 若存在同名计划，禁用或删除
                 try:
                     sch = Schedule.objects.filter(name=f"CFG_{cfg_id}").first()
@@ -156,14 +162,9 @@ def build_schedules_from_global_config() -> int:
                 existing.repeats = repeats
                 try:
                     existing.save()
-                    # 打印更新操作的结果
-                    print(f"[Scheduler] Schedule updated: {existing.name}, id={existing.id}")
+                    logger.debug("[调度器] 已更新 schedule name=%s id=%s", existing.name, existing.id)
                 except Exception as e:
-                    # 打印保存失败的异常信息
-                    print(f"[Scheduler ERROR] Failed to save schedule: {existing.name}")
-                    print(f"[Scheduler ERROR] Exception: {str(e)}")
-                    import traceback
-                    print(f"[Scheduler ERROR] Traceback: {traceback.format_exc()}")
+                    logger.exception("[调度器] 更新 schedule 失败 name=%s error=%s", existing.name, e)
             else:
                 # 保存schedule函数的返回结果
                 try:
@@ -172,30 +173,27 @@ def build_schedules_from_global_config() -> int:
                              schedule_type=schedule_type,
                              next_run=next_run,
                              repeats=repeats)
-                    # 打印返回结果
-                    print(f"[Scheduler] Schedule created with result: {schedule_result}")
+                    logger.debug("[调度器] 已创建 schedule name=%s result=%s", name, schedule_result)
                 except Exception as e:
-                    # 打印创建失败的异常信息
-                    print(f"[Scheduler ERROR] Failed to create schedule: {name}")
-                    print(f"[Scheduler ERROR] Exception: {str(e)}")
-                    import traceback
-                    print(f"[Scheduler ERROR] Traceback: {traceback.format_exc()}")
+                    logger.exception("[调度器] 创建 schedule 失败 name=%s error=%s", name, e)
             count += 1
-        # 遍历所有已创建的 Schedule 对象并输出信息
+        schedule_count = Schedule.objects.count()
+        logger.info("[调度器] 配置同步完成 enabled=%d disabled=%d active_schedules=%d", count, disabled_count, schedule_count)
         for sch in Schedule.objects.all():
-            print(f"[Scheduler] Created/Updated schedule: "
-                  f"name={sch.name}, "
-                  f"func={sch.func}, "
-                  f"args={sch.args}, "
-                  f"schedule_type={sch.schedule_type}, "
-                  f"next_run={sch.next_run}, "
-                  f"repeats={sch.repeats}")
-        #run_config_job("STOCK_Update") #此语句测试用，正常情况下由定时任务来触发
+            logger.debug(
+                "[调度器] schedule name=%s func=%s args=%s schedule_type=%s next_run=%s repeats=%s",
+                sch.name,
+                sch.func,
+                sch.args,
+                sch.schedule_type,
+                sch.next_run,
+                sch.repeats,
+            )
+        # run_config_job("STOCK_Update") #此语句测试用，正常情况下由定时任务来触发
         return count
     finally:
-            try:
-                if mongo_conn:
-                    put_mongo_conn(mongo_conn)
-            except Exception:
-                pass
-    
+        try:
+            if mongo_conn:
+                put_mongo_conn(mongo_conn)
+        except Exception:
+            pass

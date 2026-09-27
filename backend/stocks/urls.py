@@ -1,8 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateFullView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView, QueueUpdateStartView
+from views.views import StockBasicViewSet, StockFinanceViewSet, DataStatusView, UpdateStatusView, UpdateFullView, IncrementalTaskGenerateView, QueueUpdatePauseView, QueueUpdateResumeView, QueueUpdateStopView, QueueUpdateStartView
 from views.task_list_view import TaskListView
-from views.sw_industry_api import SWIndustryDataAPI, SWIndustryClassificationAPI, SWThirdLevelIndustryCodesAPI
+from views.sw_industry_api import SWIndustryDataAPI, SWIndustryClassificationAPI, SWThirdLevelIndustryCodesAPI, SWIndustryStocksSyncAPI
 from views.integrity_views import DataIntegrityCheckView, FullIntegrityCheckView, CSVStdCheck, StockFormatStandardizationView
 from views.taskview import TaskMonitorView, QTaskListView, ScheduleListView, RecentTasksView
 from .data.daily import DailyDataView
@@ -10,8 +10,8 @@ from .data.basic import StocksSHView, StocksSZView, StocksBJView
 from .data.dragon_tiger import DragonTigerView
 from views.heatmap import HeatmapDataView
 from views.config_views import ScheduleConfigView, ScheduleApplyView
-from views.restore_backup import GetRestoreStockFiles, RestoreStockData, MergeStockData, MergeStockItem, SwMergeData, MergeSWIndexData
-from views.adjust_factor_views import AdjustFactorUpdateView, AdjustFactorStatusView
+from views.restore_backup import GetRestoreStockFiles, RestoreStockData, RestoreStockAllData, MergeStockData, MergeStockItem, MergeStockMergeStart, MergeStockMergeStatus, SwMergeData, MergeSWIndexData
+from views.adjust_factor_views import AdjustFactorUpdateView, AdjustFactorStatusView, AdjustFactorPauseView, AdjustFactorResumeView
 from views.financial_data_views import FinancialDataUpdateView, FinancialDataStatusView, FinancialDataPauseView, FinancialDataResumeView
 from views.index_components_views import IndexComponentsUpdateView, IndexComponentsStatusView, IndexComponentsPauseView, IndexComponentsResumeView, GetAllIndicesView
 router = DefaultRouter()
@@ -25,6 +25,7 @@ urlpatterns = [
     path('stocks/update/status', UpdateStatusView.as_view()),
     # UpdateRunView已移除
     path('stocks/update/full', UpdateFullView.as_view()),
+    path('stocks/update/incremental/generate', IncrementalTaskGenerateView.as_view()),
 
     path('stocks/update/queue/pause', QueueUpdatePauseView.as_view()),
     path('stocks/update/queue/resume', QueueUpdateResumeView.as_view()),
@@ -61,15 +62,19 @@ urlpatterns = [
     path('stocks/sw/generate', SWIndustryDataAPI.as_view()),# 生成申万行业分类数据
     path('stocks/sw/classification', SWIndustryClassificationAPI.as_view()),# 查询申万行业分类数据
     path('stocks/sw/third_level_industry_codes', SWThirdLevelIndustryCodesAPI.as_view()),# 获取三级行业成分股
+    path('stocks/sw/sync_industry_stocks', SWIndustryStocksSyncAPI.as_view()),# 同步申万三级股票分类
     
       # 股票文件处理相关API
 
     path('restore/get_stock_files/', GetRestoreStockFiles.as_view()),
     path('restore/get_sw_files/', GetRestoreStockFiles.as_view()),
     path('restore/process/', RestoreStockData.as_view()),
+    path('restore/process_all/', RestoreStockAllData.as_view()),
 
     path('restore/merge/', MergeStockData.as_view()),
     path('restore/mergeItem/', MergeStockItem.as_view()),
+    path('restore/merge/start', MergeStockMergeStart.as_view()),
+    path('restore/merge/status', MergeStockMergeStatus.as_view()),
 
     path('restore/sw_merge/', SwMergeData.as_view()),
     path('restore/sw_mergeItem/', MergeSWIndexData.as_view()),
@@ -77,8 +82,8 @@ urlpatterns = [
     # 复权因子更新API
     path('stocks/update/adjust_factor/start', AdjustFactorUpdateView.as_view()),# 更新复权因子
     path('stocks/update/adjust_factor/status', AdjustFactorStatusView.as_view()),# 获取复权因子更新状态
-    path('stocks/update/adjust_factor/pause', QueueUpdatePauseView.as_view()),# 暂停复权因子更新
-    path('stocks/update/adjust_factor/resume', QueueUpdateResumeView.as_view()),# 恢复复权因子更新
+    path('stocks/update/adjust_factor/pause', AdjustFactorPauseView.as_view()),# 暂停复权因子更新
+    path('stocks/update/adjust_factor/resume', AdjustFactorResumeView.as_view()),# 恢复复权因子更新
     
     # 金融数据更新API
     path('stocks/update/financial_data/start', FinancialDataUpdateView.as_view()),# 更新金融数据

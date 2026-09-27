@@ -17,66 +17,56 @@ class TaskListView(APIView):
             task_type = request.GET.get('task_type', '').strip()
             status_filter = request.GET.get('status', '').strip()
             param_contains = request.GET.get('param_contains', '').strip()
-            page = int(request.GET.get('page', 1))
-            page_size = int(request.GET.get('page_size', 50))
+            page = max(1, int(request.GET.get('page', 1)))
+            page_size = min(500, max(1, int(request.GET.get('page_size', 50))))
             
             # 计算偏移量
             offset = (page - 1) * page_size
             
             # 实例化QtasksOrm
             orm = QtasksOrm()
-            
-            # 获取所有任务（这里先获取所有，然后在Python层面处理过滤和分页）
-            all_tasks = orm.list_tasks(status=status_filter if status_filter else None, 
-                                      task_type=task_type if task_type else None)
-            
-            # 处理param_contains过滤
-            filtered_tasks = all_tasks
-            if param_contains:
-                filtered_tasks = []
-                for task in all_tasks:
-                    try:
-                        # 检查task_params是否包含指定字符串
-                        if isinstance(task.get('task_params'), str):
-                            if param_contains in task['task_params']:
-                                filtered_tasks.append(task)
-                        elif isinstance(task.get('task_params'), dict):
-                            # 如果已经是字典，转换为字符串再检查
-                            if param_contains in json.dumps(task['task_params']):
-                                filtered_tasks.append(task)
-                    except Exception:
-                        continue
-            
-            # 计算总数
-            total = len(filtered_tasks)
-            
-            # 排序和分页
-            # 按created_at降序排序
-            filtered_tasks.sort(key=lambda x: x.get('created_at') or 0, reverse=True)
-            
-            # 分页处理
-            items = filtered_tasks[offset:offset + page_size]
+
+            status_arg = status_filter if status_filter else None
+            task_type_arg = task_type if task_type else None
+            param_arg = param_contains if param_contains else None
+
+            # 数据库侧计数和分页，避免 list_tasks 默认 10000 条上限影响 total 和分页。
+            total = orm.count_tasks(
+                status=status_arg,
+                task_type=task_type_arg,
+                param_contains=param_arg,
+            )
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            if page > total_pages:
+                page = total_pages
+                offset = (page - 1) * page_size
+
+            items = orm.list_tasks(
+                status=status_arg,
+                task_type=task_type_arg,
+                limit=page_size,
+                offset=offset,
+                param_contains=param_arg,
+                sort_order=[('created_at', -1), ('priority', -1)],
+            )
             
             # 转换task_params为JSON对象
             for item in items:
-                if isinstance(item['task_params'], str) and item['task_params'].strip():
+                task_params = item.get('task_params')
+                if isinstance(task_params, str) and task_params.strip():
                     try:
-                        item['task_params'] = json.loads(item['task_params'])
+                        item['task_params'] = json.loads(task_params)
                     except json.JSONDecodeError:
-                        item['task_params'] = item.get('task_params')
+                        item['task_params'] = task_params
                 else:
-                    item['task_params'] = None
+                    item['task_params'] = task_params if task_params else None
             
             # 获取可选的任务类型
-            # 从所有任务中提取唯一的task_type
-            all_types = set()
-            for task in all_tasks:
-                if task.get('task_type') and task['task_type'].strip():
-                    all_types.add(task['task_type'])
-            types = sorted(list(all_types))
+            types = orm.list_task_types()
+            # 获取任务总览（按类型+状态聚合）
+            summary = orm.get_summary()
             
             # 计算分页信息
-            total_pages = max(1, (total + page_size - 1) // page_size)
             has_prev = page > 1
             has_next = page < total_pages
             
@@ -91,7 +81,8 @@ class TaskListView(APIView):
                 'has_next': has_next,
                 'options': {
                     'types': types
-                }
+                },
+                'summary': summary
             })
             
         except Exception as e:
@@ -127,23 +118,17 @@ class TaskListView(APIView):
             
             # 检查是否是删除所有任务请求
             if is_delete_all:
-                # 删除所有任务
-                # 首先获取所有任务
-                all_tasks = orm.list_tasks()
-                count = len(all_tasks)
-                
-                # 删除每个任务
-                if count > 0:
-                    for task in all_tasks:
-                        try:
-                            orm.delete_task(task['task_id'])
-                        except Exception as e:
-                            logger.error(f"删除任务 {task['task_id']} 失败: {str(e)}")
-                            continue
+                # 直接全量删除，不受 list_tasks 默认 limit=10000 限制
+                before_count = orm.count_tasks()
+                deleted_count = orm.delete_all_tasks()
+                after_count = orm.count_tasks()
                 
                 return Response({
                     'success': True,
-                    'count': count
+                    'count': deleted_count,
+                    'deleted_count': deleted_count,
+                    'before_count': before_count,
+                    'after_count': after_count
                 })
             
             # 否则执行原有任务重试逻辑
@@ -174,7 +159,13 @@ class TaskListView(APIView):
             # 获取所有符合条件的任务
             all_tasks = []
             for status in status_list:
-                tasks = orm.list_tasks(status=status.strip())
+                status_value = str(status).strip()
+                if not status_value:
+                    continue
+                task_count = orm.count_tasks(status=status_value)
+                if task_count <= 0:
+                    continue
+                tasks = orm.list_tasks(status=status_value, limit=task_count)
                 all_tasks.extend(tasks)
             
             # 去重，确保每个任务只处理一次

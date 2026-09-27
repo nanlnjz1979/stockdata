@@ -1,27 +1,14 @@
-CREATE TABLE default.sw_industry_stocks
+CREATE TABLE IF NOT EXISTS default.sw_industry_stocks
 (
-    `stock_code` String,
+    `code` String,
+    `market` LowCardinality(String),
     `stock_name` String,
-    `industry_code` String,
-    `include_date` Date,
-    `sw_first_level` String,
-    `sw_second_level` String,
-    `sw_third_level` String,
-    `price` Float64,
-    `pe` Float64,
-    `pe_ttm` Float64,
-    `pb` Float64,
-    `dividend_yield` Float64,
-    `market_cap` Float64,
-    `net_profit_growth_0930` Float64,
-    `net_profit_growth_0630` Float64,
-    `revenue_growth_0930` Float64,
-    `revenue_growth_0630` Float64,
-    `update_time` DateTime,
+    `sw_first_level` LowCardinality(String),
+    `sw_second_level` LowCardinality(String),
+    `sw_third_level` LowCardinality(String),
+    `update_time` DateTime DEFAULT now(),
     `_version` UInt64 DEFAULT toUnixTimestamp64Nano(now64()) + rowNumberInAllBlocks()
 )
-ENGINE = MergeTree
-PARTITION BY toYYYYMM(update_time)
-ORDER BY (stock_code, update_time)
-TTL update_time + toIntervalYear(10)
-SETTINGS index_granularity = 8192
+ENGINE = ReplacingMergeTree(_version)
+ORDER BY code
+SETTINGS index_granularity = 8192;

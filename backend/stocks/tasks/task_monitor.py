@@ -192,22 +192,22 @@ if __name__ == "__main__":
     for status, count in stats.items():
         print(f"   {status}: {count}")
     
-    print("\n2. 获取待处理任务:")
-    pending_tasks = get_all_tasks(status='待处理', limit=10)
-    print(f"   待处理任务数量: {len(pending_tasks)}")
+    print("\n2. 获取排队中任务:")
+    pending_tasks = get_all_tasks(status='queued', limit=10)
+    print(f"   排队中任务数量: {len(pending_tasks)}")
     for task in pending_tasks:
-        print(f"   - {task['task_id']} ({task['task_type']})")
+        print(f"   - {task['id']} ({task['name']}) - {task['status']}")
     
     print("\n3. 获取所有任务:")
     all_tasks = get_all_tasks(limit=10)
     print(f"   任务总数: {len(all_tasks)}")
     for task in all_tasks:
-        print(f"   - {task['task_id']} ({task['task_type']}) - {task['status']}")
+        print(f"   - {task['id']} ({task['name']}) - {task['status']}")
     
     print("\n4. 获取调度任务:")
     schedules = get_all_schedules()
     print(f"   调度任务数量: {len(schedules)}")
     
     print("\n5. 获取最近任务:")
-    recent_tasks = get_recent_tasks(days=1, limit=5)
+    recent_tasks = get_recent_tasks(limit=5)
     print(f"   最近任务数量: {len(recent_tasks)}")

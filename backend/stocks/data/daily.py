@@ -39,12 +39,22 @@ class DailyDataView(APIView):
             params = [code, start_date, end_date]
             where_sql = ' WHERE ' + ' AND '.join(where)
             
-            # 执行查询 - ClickHouse客户端直接支持execute方法，不需要cursor
+            # 按日期取基表中的最新版本。
             rows = conn.execute(
                 f"""
-                SELECT date, open, close, high, low, volume, amount, turnover, outstanding_share
-                FROM stock_daily_v
+                SELECT
+                    date,
+                    argMax(open, _version) AS open,
+                    argMax(close, _version) AS close,
+                    argMax(high, _version) AS high,
+                    argMax(low, _version) AS low,
+                    argMax(volume, _version) AS volume,
+                    argMax(amount, _version) AS amount,
+                    argMax(turnover, _version) AS turnover,
+                    argMax(outstanding_share, _version) AS outstanding_share
+                FROM stock_daily
                 {where_sql}
+                GROUP BY date
                 ORDER BY date ASC
                 """,
                 params

@@ -1,9 +1,10 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import threading
 import logging
 import sys
 import os
 import datetime
+import re
 
 # 添加项目路径以便导入连接池
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -161,10 +162,12 @@ class QtasksOrm:
                 }
                 
                 # 根据状态更新开始时间和结束时间
+                if status == '待处理':
+                    update_fields['$set']['started_at'] = None
+                    update_fields['$set']['ended_at'] = None
                 if status == '处理中':
-                    update_fields['$setOnInsert'] = {
-                        'started_at': now
-                    }
+                    update_fields['$set']['started_at'] = now
+                    update_fields['$set']['ended_at'] = None
                 elif status in ['成功', '失败', '已取消']:
                     update_fields['$set']['ended_at'] = now
                 
@@ -184,11 +187,22 @@ class QtasksOrm:
             except Exception as e:
                 # 记录详细错误信息
                 error_msg = f"更新任务 {task_id} 状态时出错: {str(e)}"
-                logging.error(error_msg)
-                print(error_msg)
+                logging.exception(error_msg)
                 raise
 
     # 查询/列表
+    def _build_task_query(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, param_contains: Optional[str] = None) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if status:
+            query['status'] = status
+        if task_type:
+            query['task_type'] = task_type
+        if task_params:
+            query['task_params'] = task_params
+        if param_contains:
+            query['task_params'] = {'$regex': re.escape(param_contains)}
+        return query
+
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             if not hasattr(self, '_conn') or not self._conn:
@@ -202,35 +216,120 @@ class QtasksOrm:
             )
             return task if task else None
 
-    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 10000) -> List[Dict[str, Any]]:
+    def list_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, limit: int = 10000, offset: int = 0, param_contains: Optional[str] = None, sort_order: Optional[List[Tuple[str, int]]] = None) -> List[Dict[str, Any]]:
         
         if not hasattr(self, '_conn') or not self._conn:
             # 连接不存在或已关闭，重新初始化
             self._initialize()
                 
-        # 构建 MongoDB 查询条件
-        query = {}
-        if status:
-            query['status'] = status
-        if task_type:
-            query['task_type'] = task_type
-        if task_params:
-            query['task_params'] = task_params
+        query = self._build_task_query(status, task_type, task_params, param_contains)
         
         # 构建排序条件
-        sort_order = [
+        sort_order = sort_order or [
             ('priority', -1),  # 按优先级降序
             ('started_at', -1)  # 按开始时间降序
         ]
+
+        safe_limit = max(0, int(limit or 0))
+        safe_offset = max(0, int(offset or 0))
         
         # 执行查询
-        tasks = self._tasks_col.find(
+        cursor = self._tasks_col.find(
             query,
             {'_id': 0, 'task_id': 1, 'task_type': 1, 'task_desc': 1, 'task_params': 1, 'priority': 1, 'status': 1, 'created_at': 1, 'started_at': 1, 'ended_at': 1}
-        ).sort(sort_order).limit(int(limit or 100))
+        ).sort(sort_order).skip(safe_offset)
+
+        if safe_limit:
+            cursor = cursor.limit(safe_limit)
         
         # 将 MongoDB 游标转换为列表
-        return list(tasks)
+        return list(cursor)
+
+    def count_tasks(self, status: Optional[str] = None, task_type: Optional[str] = None, task_params: Optional[str] = None, param_contains: Optional[str] = None) -> int:
+        """
+        返回任务数量，避免前端轮询时把所有任务都查出来再计数。
+        """
+        if not hasattr(self, '_conn') or not self._conn:
+            self._initialize()
+
+        query = self._build_task_query(status, task_type, task_params, param_contains)
+
+        try:
+            return int(self._tasks_col.count_documents(query))
+        except Exception as e:
+            logging.error(f"统计任务数量失败: query={query}, error={str(e)}")
+            return 0
+
+    def reset_processing_tasks_to_pending(self, task_type: Optional[str] = None) -> int:
+        """
+        后端进程重启或队列异常退出后，数据库可能残留无人处理的“处理中”任务。
+        将这些任务回收到“待处理”，方便下一次任务队列继续消费。
+        """
+        if not hasattr(self, '_conn') or not self._conn:
+            self._initialize()
+
+        query = {'status': '处理中'}
+        if task_type:
+            query['task_type'] = task_type
+
+        try:
+            result = self._tasks_col.update_many(
+                query,
+                {
+                    '$set': {
+                        'status': '待处理',
+                        'started_at': None,
+                        'ended_at': None,
+                    }
+                }
+            )
+            return int(getattr(result, 'modified_count', 0) or 0)
+        except Exception as e:
+            logging.error(f"回收处理中任务失败: query={query}, error={str(e)}")
+            return 0
+
+    def list_task_types(self) -> List[str]:
+        """
+        返回全部任务类型，用于前端筛选项，不受任务列表分页限制。
+        """
+        if not hasattr(self, '_conn') or not self._conn:
+            self._initialize()
+
+        try:
+            task_types = self._tasks_col.distinct('task_type', {'task_type': {'$nin': [None, '']}})
+            return sorted(str(task_type) for task_type in task_types if str(task_type).strip())
+        except Exception as e:
+            logging.error(f"获取任务类型失败: {str(e)}")
+            return []
+
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        按 task_type + status 聚合统计，返回总览数据。
+        返回: {"total": N, "types": {type_name: {total, 待处理, 处理中, ...}}, "status_total": {...}}
+        """
+        if not hasattr(self, '_conn') or not self._conn:
+            self._initialize()
+        STATUSES = ["待处理", "处理中", "成功", "失败", "重试中", "已取消"]
+        try:
+            pipeline = [{"$group": {"_id": {"task_type": "$task_type", "status": "$status"}, "count": {"$sum": 1}}}]
+            results = list(self._tasks_col.aggregate(pipeline))
+            summary: Dict[str, Any] = {"total": 0, "types": {}, "status_total": {s: 0 for s in STATUSES}}
+            for r in results:
+                tt = r["_id"].get("task_type") or "未分类"
+                st = r["_id"].get("status") or "未知"
+                cnt = r["count"]
+                if tt not in summary["types"]:
+                    summary["types"][tt] = {"total": 0, **{s: 0 for s in STATUSES}}
+                summary["types"][tt]["total"] += cnt
+                if st in summary["types"][tt]:
+                    summary["types"][tt][st] = cnt
+                if st in summary["status_total"]:
+                    summary["status_total"][st] += cnt
+                summary["total"] += cnt
+            return summary
+        except Exception as e:
+            logging.error(f"获取任务总览失败: {str(e)}")
+            return {"total": 0, "types": {}, "status_total": {}}
 
     # 便捷创建/更新/删除
     def create_task(self, task_type: str, task_desc: str = "", task_params: str = "{}", priority: int = 0, status: str = "待处理", task_id: Optional[str] = None) -> str:
@@ -307,11 +406,31 @@ class QtasksOrm:
                     if task_id in self._task_locks:
                         del self._task_locks[task_id]
 
+    def delete_all_tasks(self) -> int:
+        """
+        删除所有任务，不受 list_tasks 默认 limit 限制。
+        """
+        with self._lock:
+            if not hasattr(self, '_conn') or not self._conn:
+                self._initialize()
+
+            result = self._tasks_col.delete_many({})
+            deleted_count = int(getattr(result, 'deleted_count', 0) or 0)
+
+            if hasattr(self, '_task_locks_lock') and hasattr(self, '_task_locks'):
+                with self._task_locks_lock:
+                    self._task_locks.clear()
+
+            logging.info(f"已删除所有任务，数量: {deleted_count}")
+            return deleted_count
+
     # 选择与认领/完成
     def next_pending_task(self, task_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
-        线程安全的获取下一个待处理任务方法
-        使用全局锁避免多个线程同时获取同一个任务
+        原子认领下一个待处理任务，并把状态置为“处理中”。
+
+        多线程队列消费时，查询和认领必须在一次数据库操作里完成，否则多个
+        worker 可能先后读到同一条“待处理”任务，再重复执行。
         """
         with self._lock:
             if not hasattr(self, '_conn') or not self._conn:
@@ -326,17 +445,25 @@ class QtasksOrm:
             # 构建排序条件
             sort_order = [
                 ('priority', -1),  # 按优先级降序
-                ('started_at', 1)  # 按开始时间升序
+                ('created_at', 1),
+                ('task_id', 1)
             ]
-            
-            # 执行查询
-            cursor = self._tasks_col.find(
+
+            now = datetime.datetime.now()
+            task = self._tasks_col.find_one_and_update(
                 query,
-                {'_id': 0, 'task_id': 1, 'task_type': 1, 'task_desc': 1, 'task_params': 1, 'priority': 1, 'status': 1, 'created_at': 1, 'started_at': 1, 'ended_at': 1}
-            ).sort(sort_order).limit(1)
-            
-            # 获取第一个结果
-            task = next(cursor, None)
+                {
+                    '$set': {
+                        'status': '处理中',
+                        'started_at': now
+                    },
+                    '$unset': {
+                        'ended_at': ''
+                    }
+                },
+                sort=sort_order,
+                projection={'_id': 0, 'task_id': 1, 'task_type': 1, 'task_desc': 1, 'task_params': 1, 'priority': 1, 'status': 1, 'created_at': 1, 'started_at': 1, 'ended_at': 1}
+            )
             return task if task else None
 
     def _get_task_lock(self, task_id: str) -> threading.RLock:
@@ -386,11 +513,12 @@ class QtasksOrm:
                     logging.debug(f"任务 {task_id} 已成功认领")
                     return True
                 
-                # 再次检查任务状态以确保结果准确性
+                # 再次检查任务状态以确保结果准确性；若已是“处理中”，说明被别的
+                # worker 抢先认领，当前调用方不能继续执行这条任务。
                 t = self.get_task(task_id)
                 if t and t.get("status") == "处理中":
                     logging.debug(f"任务 {task_id} 已被其他线程认领")
-                    return True
+                    return False
                 
                 logging.warning(f"任务 {task_id} 认领失败，可能已被其他线程处理")
                 return False

@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Django: Run",
+            "name": "stockdata 后端（Django）",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/backend/manage.py",
@@ -20,54 +20,19 @@
             }
         },
         {
-            "name": "Django: Run with Reload",
+            "name": "stockdata 前端",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/backend/manage.py",
+            "module": "http.server",
             "python": "${workspaceFolder}/backend/venv/bin/python3",
             "args": [
-                "runserver",
-                "0.0.0.0:8000"
+                "5500",
+                "--bind",
+                "127.0.0.1"
             ],
-            "django": true,
+            "cwd": "${workspaceFolder}/frontend",
             "justMyCode": true,
-            "cwd": "${workspaceFolder}/backend",
-            "env": {
-                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
-            }
-        },
-        {
-            "name": "Django: Shell",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/backend/manage.py",
-            "python": "${workspaceFolder}/backend/venv/bin/python3",
-            "args": [
-                "shell"
-            ],
-            "django": true,
-            "justMyCode": true,
-            "cwd": "${workspaceFolder}/backend",
-            "env": {
-                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
-            }
-        },
-        {
-            "name": "Python: Django Debug Single File",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/backend/manage.py",
-            "python": "${workspaceFolder}/backend/venv/bin/python3",
-            "args": [
-                "runserver",
-                "0.0.0.0:8000",
-                "--noreload"
-            ],
-            "cwd": "${workspaceFolder}/backend",
-            "env": {
-                "DJANGO_SETTINGS_MODULE": "stockserver.settings"
-            },
-            "justMyCode": true
+            "console": "integratedTerminal"
         }
     ]
 }

@@ -1204,10 +1204,10 @@ class CSVStdCheck(APIView):
         
         try:
             # 获取该股票的交易日期范围
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT MIN(date), MAX(date) FROM stock_daily WHERE code = %s
             """, [stock_code])
-            date_range = cursor.fetchone()
+            date_range = result[0] if result else None
             
             if not date_range or not date_range[0] or not date_range[1]:
                 issues.append('无法获取交易日期范围')
@@ -1233,11 +1233,11 @@ class CSVStdCheck(APIView):
                 end_date = end_date.date() if hasattr(end_date, 'date') else end_date
             
             # 获取交易日列表（从现有数据中）
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT DISTINCT CAST(date AS DATE) as date  FROM stock_daily WHERE code = %s
                 ORDER BY date
             """, [stock_code])
-            trading_days = [row[0].date() if hasattr(row[0], 'date') else row[0] for row in cursor.fetchall()]
+            trading_days = [row[0].date() if hasattr(row[0], 'date') else row[0] for row in (result or [])]
             
             # 检测可能的停牌日（交易日列表中的间隔日期）
             current_date = start_date
@@ -1276,11 +1276,11 @@ class CSVStdCheck(APIView):
                 current_date += timedelta(days=1)
             
             # 检测可疑数据（有交易记录但成交量为0）
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT CAST(date AS DATE), volume FROM stock_daily 
                 WHERE code = %s AND volume = 0
             """, [stock_code])
-            zero_volume_records = cursor.fetchall()
+            zero_volume_records = result or []
             
             for record in zero_volume_records:
                 details["suspicious_days"].append({
@@ -1333,40 +1333,39 @@ class StockFormatStandardizationView(APIView):
                     'error': '无法获取数据库连接'
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            with conn.cursor() as cursor:
-                # 3. 查询股票基本信息
-                cursor.execute("SELECT name FROM stock_basic WHERE code = %s", [stock_code])
-                stock_info = cursor.fetchone()
-                if not stock_info:
-                    return Response({'error': f'Stock {stock_code} not found'}, status=status.HTTP_404_NOT_FOUND)
-                
-                stock_name = stock_info[0]
-                
-                # 4. 获取记录总数
-                cursor.execute("SELECT COUNT(*) FROM stock_daily WHERE code = %s", [stock_code])
-                record_count = cursor.fetchone()[0]
-                
-                # 5. 执行四个方面的检测
-                check_results = {
-                    'stock_code': stock_code,
-                    'stock_name': stock_name,
-                    'total_records': record_count,
-                    'accuracy_check': self._check_data_accuracy(cursor, stock_code),
-                    'logical_check': self._check_data_logical(cursor, stock_code),
-                    'format_check': self._check_data_format(cursor, stock_code),
-                    'suspension_check': self._check_suspension_days(cursor, stock_code),
-                    'timestamp': timezone.now().isoformat()
-                }
-                
-                # 6. 整体状态判断
-                all_passed = (
-                    check_results['accuracy_check']['status'] == 'pass' and
-                    check_results['logical_check']['status'] == 'pass' and
-                    check_results['format_check']['status'] == 'pass'
-                )
-                check_results['overall_status'] = 'pass' if all_passed else 'fail'
-                
-                return Response(check_results)
+            # ClickHouse客户端直接使用execute方法，不需要cursor
+            # 3. 查询股票基本信息
+            result = conn.execute("SELECT name FROM stock_basic WHERE code = %s", [stock_code])
+            if not result:
+                return Response({'error': f'Stock {stock_code} not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            stock_name = result[0][0]
+            
+            # 4. 获取记录总数
+            result = conn.execute("SELECT COUNT(*) FROM stock_daily WHERE code = %s", [stock_code])
+            record_count = result[0][0] if result else 0
+            
+            # 5. 执行四个方面的检测
+            check_results = {
+                'stock_code': stock_code,
+                'stock_name': stock_name,
+                'total_records': record_count,
+                'accuracy_check': self._check_data_accuracy(conn, stock_code),
+                'logical_check': self._check_data_logical(conn, stock_code),
+                'format_check': self._check_data_format(conn, stock_code),
+                'suspension_check': self._check_suspension_days(conn, stock_code),
+                'timestamp': timezone.now().isoformat()
+            }
+            
+            # 6. 整体状态判断
+            all_passed = (
+                check_results['accuracy_check']['status'] == 'pass' and
+                check_results['logical_check']['status'] == 'pass' and
+                check_results['format_check']['status'] == 'pass'
+            )
+            check_results['overall_status'] = 'pass' if all_passed else 'fail'
+            
+            return Response(check_results)
         
         except Exception as e:
             return Response({
@@ -1377,7 +1376,7 @@ class StockFormatStandardizationView(APIView):
             if conn:
                 put_conn(conn)
     
-    def _check_data_accuracy(self, cursor, stock_code):
+    def _check_data_accuracy(self, conn, stock_code):
         """
         数据准确性检查
         检查数据是否在合理范围内，没有异常值
@@ -1387,32 +1386,32 @@ class StockFormatStandardizationView(APIView):
         
         try:
             # 检查价格是否为负数或零
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND (open <= 0 OR close <= 0 OR 
                                     high <= 0 OR low <= 0)
             """, [stock_code])
-            invalid_price_count = cursor.fetchone()[0]
+            invalid_price_count = result[0][0] if result else 0
             if invalid_price_count > 0:
                 issues.append(f'存在{invalid_price_count}条价格异常记录')
                 details['invalid_price_count'] = invalid_price_count
             
             # 检查交易量和成交额是否为负数
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND (volume < 0 OR amount < 0)
             """, [stock_code])
-            invalid_trade_count = cursor.fetchone()[0]
+            invalid_trade_count = result[0][0] if result else 0
             if invalid_trade_count > 0:
                 issues.append(f'存在{invalid_trade_count}条交易量/成交额异常记录')
                 details['invalid_trade_count'] = invalid_trade_count
             
             # 检查价格范围合理性（最高价应大于等于最低价）
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND high < low
             """, [stock_code])
-            invalid_range_count = cursor.fetchone()[0]
+            invalid_range_count = result[0][0] if result else 0
             if invalid_range_count > 0:
                 issues.append(f'存在{invalid_range_count}条价格范围异常记录')
                 details['invalid_range_count'] = invalid_range_count
@@ -1426,7 +1425,7 @@ class StockFormatStandardizationView(APIView):
             "details": details
         }
     
-    def _check_data_logical(self, cursor, stock_code):
+    def _check_data_logical(self, conn, stock_code):
         """
         数据逻辑性检查
         检查数据之间的逻辑关系是否合理
@@ -1436,33 +1435,33 @@ class StockFormatStandardizationView(APIView):
         
         try:
             # 检查开盘价是否在当日最高和最低价之间
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND (open < low OR open > high)
             """, [stock_code])
-            open_price_issue_count = cursor.fetchone()[0]
+            open_price_issue_count = result[0][0] if result else 0
             if open_price_issue_count > 0:
                 issues.append(f'存在{open_price_issue_count}条开盘价异常记录')
                 details['open_price_issue_count'] = open_price_issue_count
             
             # 检查收盘价是否在当日最高和最低价之间
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND (close < low OR close > high)
             """, [stock_code])
-            close_price_issue_count = cursor.fetchone()[0]
+            close_price_issue_count = result[0][0] if result else 0
             if close_price_issue_count > 0:
                 issues.append(f'存在{close_price_issue_count}条收盘价异常记录')
                 details['close_price_issue_count'] = close_price_issue_count
             
             # 检查涨跌幅是否合理（超过20%可能是异常）
             #
-            #cursor.execute("""
+            #result = conn.execute("""
             #    SELECT COUNT(*) FROM stock_daily 
             #    WHERE code = %s AND abs((close_price - prev_close) / prev_close * 100) > 20
             #    AND prev_close > 0
             #""", [stock_code])
-            #huge_fluctuation_count = cursor.fetchone()[0]
+            #huge_fluctuation_count = result[0][0] if result else 0
             #if huge_fluctuation_count > 0:
             #    issues.append(f'存在{huge_fluctuation_count}条涨跌幅异常记录')
             #    details['huge_fluctuation_count'] = huge_fluctuation_count
@@ -1476,7 +1475,7 @@ class StockFormatStandardizationView(APIView):
             "details": details
         }
     
-    def _check_data_format(self, cursor, stock_code):
+    def _check_data_format(self, conn, stock_code):
         """
         数据格式标准化检查
         检查数据字段的格式是否符合标准
@@ -1486,27 +1485,27 @@ class StockFormatStandardizationView(APIView):
         
         try:
             # 检查必填字段是否有空值
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND (date IS NULL OR open IS NULL OR 
                                     close IS NULL OR high IS NULL OR 
                                     low IS NULL)
             """, [stock_code])
-            missing_required_count = cursor.fetchone()[0]
+            missing_required_count = result[0][0] if result else 0
             if missing_required_count > 0:
                 issues.append(f'存在{missing_required_count}条必填字段缺失记录')
                 details['missing_required_count'] = missing_required_count
             
             # 检查数据类型一致性（通过查询有问题的记录）
             # 在QuestDB中，我们可以通过一些基本检查来验证字段格式
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT COUNT(*) FROM stock_daily 
                 WHERE code = %s AND 
                 (CAST(volume AS BIGINT) IS NULL OR 
                  CAST(amount AS DOUBLE) IS NULL OR
                  CAST(open AS DOUBLE) IS NULL)
             """, [stock_code])
-            format_issue_count = cursor.fetchone()[0]
+            format_issue_count = result[0][0] if result else 0
             if format_issue_count > 0:
                 issues.append(f'存在{format_issue_count}条数据格式异常记录')
                 details['format_issue_count'] = format_issue_count
@@ -1523,7 +1522,7 @@ class StockFormatStandardizationView(APIView):
             "details": details
         }
     
-    def _check_suspension_days(self, cursor, stock_code):
+    def _check_suspension_days(self, conn, stock_code):
         """
         停牌日检测
         识别股票可能的停牌日期
@@ -1536,10 +1535,10 @@ class StockFormatStandardizationView(APIView):
         
         try:
             # 获取该股票的交易日期范围
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT MIN(date), MAX(date) FROM stock_daily WHERE code = %s
             """, [stock_code])
-            date_range = cursor.fetchone()
+            date_range = result[0] if result else None
             
             if not date_range or not date_range[0] or not date_range[1]:
                 issues.append('无法获取交易日期范围')
@@ -1565,11 +1564,11 @@ class StockFormatStandardizationView(APIView):
                 end_date = end_date.date() if hasattr(end_date, 'date') else end_date
             
             # 获取交易日列表（从现有数据中）
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT DISTINCT CAST(date AS DATE) as date  FROM stock_daily WHERE code = %s
                 ORDER BY date
             """, [stock_code])
-            trading_days = [row[0].date() if hasattr(row[0], 'date') else row[0] for row in cursor.fetchall()]
+            trading_days = [row[0].date() if hasattr(row[0], 'date') else row[0] for row in (result or [])]
             
             # 检测可能的停牌日（交易日列表中的间隔日期）
             current_date = start_date
@@ -1608,11 +1607,11 @@ class StockFormatStandardizationView(APIView):
                 current_date += timedelta(days=1)
             
             # 检测可疑数据（有交易记录但成交量为0）
-            cursor.execute("""
+            result = conn.execute("""
                 SELECT CAST(date AS DATE), volume FROM stock_daily 
                 WHERE code = %s AND volume = 0
             """, [stock_code])
-            zero_volume_records = cursor.fetchall()
+            zero_volume_records = result or []
             
             for record in zero_volume_records:
                 details["suspicious_days"].append({

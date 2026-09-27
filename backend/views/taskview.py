@@ -193,7 +193,7 @@ class TaskMonitorView(APIView):
             logger = logging.getLogger(__name__)
             
             # 获取任务统计信息
-            logger.info("尝试获取任务统计信息")
+            logger.debug("获取任务统计信息")
             stats = get_task_statistics()
             
             return Response({
@@ -245,7 +245,7 @@ class ScheduleListView(APIView):
         try:
             logger = logging.getLogger(__name__)
             
-            logger.info("尝试获取调度任务列表")
+            logger.debug("获取调度任务列表")
             # 获取调度任务列表
             schedules = get_all_schedules()
             
@@ -273,7 +273,7 @@ class RecentTasksView(APIView):
         try:
             logger = logging.getLogger(__name__)
             
-            logger.info("尝试获取最近任务")
+            logger.debug("获取最近任务")
             # 获取查询参数
             limit = int(request.GET.get('limit', 50))
             
